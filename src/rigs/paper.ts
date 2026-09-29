@@ -681,11 +681,17 @@ function createBoy(o: PaperOpts): PaperRig {
   const faceMesh = new THREE.Mesh(faceGeo, mat);
   faceMesh.name = 'paperFace';
   inner.add(bodyMesh, faceMesh);
-  // 提着的白纸灯笼（竹竿 + Lathe 灯笼，字朝前）
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.008 * k, 0.008 * k, 0.5 * k, 5), new THREE.MeshStandardMaterial({ color: '#8A6A3A', roughness: 0.8 }));
+  // 提着的白纸灯笼（竹竿 + Lathe 灯笼，字朝前）。M4 第 2 轮：竿子加粗、颜色压深（原来 8mm 的浅竿子第三人称下看不见，灯笼像悬空），
+  // 灯笼挂到竿尖正下方，中间一段细绳
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.014 * k, 0.014 * k, 0.5 * k, 6), new THREE.MeshStandardMaterial({ color: '#6B4E2A', roughness: 0.8 }));
   pole.material.userData.tempC = TEMP_C.paper;
   pole.rotation.x = -1.05;
   pole.position.set(0.2 * k, 0.86 * k, -0.52 * k);
+  // 竿尖（竿子中心沿轴 +0.25k：(0, cos, sin)(−1.05) × 0.25k）
+  const tip = new THREE.Vector3(0.2 * k, 0.86 * k + Math.cos(-1.05) * 0.25 * k, -0.52 * k + Math.sin(-1.05) * 0.25 * k);
+  const cordLen = 0.04 * k;
+  const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.003 * k, 0.003 * k, cordLen, 4), pole.material);
+  cord.position.set(tip.x, tip.y - cordLen / 2, tip.z);
   const prof = [[0.001, 0.19], [0.1, 0.18], [0.14, 0.1], [0.15, 0], [0.14, -0.1], [0.1, -0.18], [0.001, -0.19]].map(([x, y]) => new THREE.Vector2((x ?? 0) * k, (y ?? 0) * k));
   const lampGeo = new THREE.LatheGeometry(prof, 18);
   const [lu0, lv0, luw, lvh] = uvRect(U([224, 288, 288, 224]));
@@ -695,8 +701,9 @@ function createBoy(o: PaperOpts): PaperRig {
   lampMat.userData.tempC = TEMP_C.ghostLantern;
   const lantern = new THREE.Mesh(lampGeo, lampMat);
   lantern.name = 'boyLantern';
-  lantern.position.set(0.2 * k, 0.72 * k, -0.78 * k);
-  inner.add(pole, lantern);
+  // 灯笼顶（半高 0.19k）挂在细绳下端
+  lantern.position.set(tip.x, tip.y - cordLen - 0.19 * k, tip.z);
+  inner.add(pole, cord, lantern);
   const mouth = new THREE.Object3D();
   mouth.position.set(0, 0.9 * k, -0.092 * k);
   inner.add(mouth);
@@ -707,6 +714,7 @@ function createBoy(o: PaperOpts): PaperRig {
       faceGeo.dispose();
       lampGeo.dispose();
       pole.geometry.dispose();
+      cord.geometry.dispose();
       mat.dispose();
       lampMat.dispose();
       pole.material.dispose();

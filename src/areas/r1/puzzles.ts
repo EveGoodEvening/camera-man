@@ -29,6 +29,9 @@ export const PUZZLES: readonly PuzzleDef[] = [
     available: F.R1_LOG_TAKEN,
     done: F.R1_GATE_UNCHAINED,
     hints: HINTS.p2,
+    // M4 第 2 轮：分阶段提示——抽屉开了以后 H 讲院门，不再从“脑门上的字”说起（GDD §3.12）
+    stage: s => (s.flag(F.R1_DRAWER_OPEN) ? 1 : 0),
+    stageHints: HINTS.p2Stages,
     target: s => (s.flag(F.R1_DRAWER_OPEN) ? OBJ.R1_GATE : OBJ.R1_DRAWER),
   },
 ];

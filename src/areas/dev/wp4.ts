@@ -869,11 +869,14 @@ async function tAlbumPick(game: Game): Promise<SelftestResult> {
       t.that(a2 !== undefined && 'menu' in a2, 'Esc → 回到动作菜单');
       game.dispatch({ t: 'digit', n: 2 });
       const things = album?.things() ?? [];
-      t.eq(things, [PH.TUDI, PH.OLD_1, IT.BULB, IT.WONTON], '格子总列表：照片在前、物品在后');
-      t.eq(album?.cursor, 2, '“使用”的挑选器光标先指到第一件物品');
+      // M4 第 2 轮：挑选器里关键照片、新拍的在前；物品未用的、新得的在前（albumLists）
+      t.eq(things, [PH.OLD_1, PH.TUDI, IT.WONTON, IT.BULB], '挑选器格子：照片在前（新拍的在前）、物品在后（新得的在前）');
+      t.eq(album?.cursor, 2, '“使用”的挑选器光标先指到第一件未用的物品');
       game.dispatch({ t: 'nav', dx: 0, dy: 1 });
       t.eq(album?.cursor, 3, '物品区里下 = +1');
       game.dispatch({ t: 'nav', dx: -1, dy: 0 });
+      t.eq(album?.cursor, 2, '左 = 总列表 −1');
+      game.dispatch({ t: 'nav', dx: 1, dy: 0 });
       game.dispatch({ t: 'confirm' });
       t.eq(m.top, 'mode.explore', '确认后弹出 album');
       await game.settle();

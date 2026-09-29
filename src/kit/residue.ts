@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import type { XZ } from '../core/types';
 import { setLayerRecursive } from '../core/layers';
+import { FX_TIME } from '../fx/ghostMaterials';
 import { PALETTE } from '../data/palette';
 import { TEMP_C } from '../data/render';
 import { createHumanoidInternal } from '../rigs/humanoid';
@@ -27,10 +28,17 @@ void main() {
   vec3 p = vec3(cos(t) * r, h * 2.1, sin(t) * r);
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = clamp(34.0 / -mv.z, 1.5, 6.0);
+  // M4 第 2 轮：点的大小上限 6 → 4 像素；离镜头近的点淡下去，镜头离这根柱子不到 2.5m 时整柱压到 40%——
+  // 取景器里近处的一整柱雪花原来盖在灶台、门神这些要看的东西前面（“▶ 残影 · R”已经指明了位置）
+  gl_PointSize = clamp(34.0 / -mv.z, 1.5, 4.0);
+  // 取景器变焦按“看上去的距离”算（2× 时 3m 外的柱子看着像 1.5m）：1× 取景器 fov 50° 时 projectionMatrix[1][1] = cot(25°) ≈ 2.1445
+  vec4 axis = modelViewMatrix * vec4(0.0, 1.0, 0.0, 1.0);
+  float apparent = length(axis.xyz) * 2.1445 / max(projectionMatrix[1][1], 0.1);
+  float col = mix(0.4, 1.0, smoothstep(2.0, 2.8, apparent));
   // 电视雪花：每个点亮度随时间乱跳
   vBright = fract(sin(dot(vec2(aPhase, floor(uTime * 24.0)), vec2(12.9898, 78.233))) * 43758.5453);
   vBright *= smoothstep(0.0, 0.15, h) * (1.0 - smoothstep(0.8, 1.0, h));
+  vBright *= (smoothstep(0.8, 2.6, -mv.z) * 0.7 + 0.3) * col;
 }`;
 
 const VORTEX_FRAG = /* glsl */ `
@@ -43,7 +51,7 @@ void main() {
 
 /**
  * 残影点雪花旋涡（layer.yin，自带动画）：约 420 个点绕一根 2.1m 高的竖轴打旋上飘、亮度像 CRT 雪花一样乱跳，
- * 底下一圈淡淡的地面光晕。动画用绘制时的真实时钟（纯装饰，冻结时仍会转，不影响玩法，ARCH §1.4）。
+ * 底下一圈淡淡的地面光晕。动画用共享的后期动画时间 FX_TIME（游戏时间；纯装饰，不影响玩法，ARCH §1.4）。
  */
 export function createResidueVortex(): THREE.Object3D {
   const g = new THREE.Group();
@@ -71,8 +79,9 @@ export function createResidueVortex(): THREE.Object3D {
   pts.name = 'vortexSnow';
   pts.frustumCulled = false;
   pts.renderOrder = 11;
+  // M4 第 2 轮：按共享的后期动画时间（游戏时间，冻结时停）转，锁步截图可复现（原来用真实时钟，每张截图的雪花都不一样）
   pts.onBeforeRender = () => {
-    uTime.value = (performance.now() / 1000) % 10000;
+    uTime.value = FX_TIME.value % 10000;
   };
   g.add(pts);
   // 地面光晕

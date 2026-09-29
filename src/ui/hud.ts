@@ -27,13 +27,19 @@ interface MarkerEl { root: HTMLElement; tag: HTMLElement; label: HTMLElement; re
 const EXPLORE_MAX_BOXES = 4;
 /** 取景器里聚焦名画在准星中心下方这么多 em（准星环 3.4em 高，M4）。 */
 const VF_FOCUS_TAG_EM = 2.5;
-/** 画框顶部让给 OSD 行、底部让给倍率条与操作提示行（em，另加画框高的 5%；M4）。 */
+/**
+ * 画框顶部让给 OSD 行、底部让给倍率条与操作提示行（em，另加画框高的 5%；M4）。
+ * M4 第 2 轮：按键行放大到 0.9em 后，贴底的角框连同它下面的名字（约 2.3em）会压在按键行上——底部让出 5.6em。
+ */
 const VF_TOP_EM = 1.9;
-const VF_BOTTOM_EM = 3.5;
+const VF_BOTTOM_EM = 5.6;
 /** 取景器画框左右内缩（画框宽的比例；角标不画到 4:3 框外的黑边上，M4）。 */
 const VF_SIDE = 0.04;
 
-interface Placed { m: MarkerEl; s: InteractableStatus; x: number; y: number; npc: boolean; vfFocus: boolean; far: boolean; rank: number }
+/** M4 第 2 轮：取景器聚焦名在准星右侧时离中心多少 em（倍率 ≥ 3×：下方正是要看的嘴、眼珠）。 */
+const VF_FOCUS_RIGHT_EM = 2.2;
+
+interface Placed { m: MarkerEl; s: InteractableStatus; x: number; y: number; npc: boolean; vfFocus: boolean; far: boolean; rank: number; side: 'below' | 'above' | 'right' }
 
 export class HudView implements View {
   readonly el: HTMLElement;
@@ -55,6 +61,8 @@ export class HudView implements View {
   private recBlinkUntil = 0;
   private emKey = '';
   private emCache = 16;
+  /** M4 第 2 轮：名字标签的实测尺寸（按文字与样式缓存；原来按字数估算，和实际渲染宽度对不上，电闸“开关②③④”叠成一串） */
+  private readonly tagSize = new Map<string, { w: number; h: number }>();
 
   constructor(game: Game) {
     this.game = game;
@@ -159,10 +167,15 @@ export class HudView implements View {
       // 就近规则选出的聚焦对象可能不在准星上：那时照常画在它自己身上（带角框），只有准星对着的才固定画在准星下方
       const vfFocus = vf && s.focused && g.sys.interaction.focusedByRay;
       let x: number, y: number;
+      let side: Placed['side'] = 'below';
       if (vfFocus) {
-        // 聚焦对象在取景器里：准星已经框住它，名字固定画在准星环外下方（M4：原来锚点就在准星处，准星的竖线穿过名字）
-        x = w / 2;
-        y = hgt / 2 + VF_FOCUS_TAG_EM * em;
+        // 聚焦对象在取景器里：准星已经框住它，名字固定画在准星环外（M4：原来锚点就在准星处，准星的竖线穿过名字）。
+        // M4 第 2 轮：缺省在下方；读字框显示时在上方（对象自己的编号/字印在下面，如取件格），倍率 ≥ 3× 时在右侧（4× 看破绽时下方正是嘴）；
+        // InteractableDef.vfLabel 可指定
+        const want = g.sys.interaction.get(s.id)?.vfLabel;
+        side = want ?? (g.sys.viewfinder.zoom >= 3 ? 'right' : this.readShown() ? 'above' : 'below');
+        x = side === 'right' ? w / 2 + VF_FOCUS_RIGHT_EM * em : w / 2;
+        y = side === 'right' ? hgt / 2 : side === 'above' ? hgt / 2 - VF_FOCUS_TAG_EM * em : hgt / 2 + VF_FOCUS_TAG_EM * em;
       } else {
         const p = this.anchor(s.id, npc);
         if (!p) continue;
@@ -185,7 +198,7 @@ export class HudView implements View {
       }
       const m = this.markerFor(s.id);
       const rank = (s.focused ? 1e6 : 0) + (this.isBlinking(s) ? 1e5 : 0) + (far ? 5e4 : 0) + (g.sys.interaction.get(s.id)?.priority ?? 0) * 100 - s.distance;
-      placed.push({ m, s, x, y, npc, vfFocus, far, rank });
+      placed.push({ m, s, x, y, npc, vfFocus, far, rank, side });
     }
     // 探索（第三人称）：未聚焦、没在闪的只画角框，最多画最近的几个（M4：门卫室里七八个标签堆成一团）
     const explore = !vf;
@@ -197,6 +210,20 @@ export class HudView implements View {
     // 名字按优先级贪心避让：矩形相交就往下（NPC 往上）推一行，推两次还相交就只留角框（M4）
     placed.sort((a, b) => b.rank - a.rank);
     const rects: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    // M4 第 2 轮：取景器里读字框、常驻按键行、倍率条占的矩形也算障碍——角标名字推开或只留角框，不压在读出来的字、按键说明上
+    if (vf) {
+      const hb = this.markersEl.parentElement?.getBoundingClientRect();
+      const ox = hb?.left ?? 0, oy = hb?.top ?? 0;
+      const block = (el: Element | null | undefined): void => {
+        if (!el) return;
+        const rb = el.getBoundingClientRect();
+        if (rb.width > 0 && rb.height > 0) rects.push({ x0: rb.left - ox, y0: rb.top - oy, x1: rb.right - ox, y1: rb.bottom - oy });
+      };
+      if (this.readShown()) block(this.game.ui.read.el);
+      const vfEl = this.game.ui.vf.el;
+      block(vfEl.querySelector('.cm-vf-keys:not(.cm-hidden)'));
+      block(vfEl.querySelector('.cm-vf-zoom'));
+    }
     const keyable = top === 'mode.explore' || top === 'mode.viewfinder' || top === 'mode.replay';
     for (const p of placed) {
       const { m, s } = p;
@@ -209,38 +236,55 @@ export class HudView implements View {
       setClass(m.root, 'cm-vf-focus', p.vfFocus);
       setClass(m.root, 'cm-npc', p.npc);
       setClass(m.root, 'cm-blink', this.isBlinking(s));
-      setClass(m.root, 'cm-keyable', s.focused && s.available && keyable);
+      const keyOn = s.focused && s.available && keyable;
+      setClass(m.root, 'cm-keyable', keyOn);
+      setClass(m.root, 'cm-vf-above', p.vfFocus && p.side === 'above');
+      setClass(m.root, 'cm-vf-right', p.vfFocus && p.side === 'right');
       // “前置不满足时灰色，聚焦时附一句原因”（GDD §10.2）；射程外的聚焦候选附“（走近点）”（M4）
       const reason = p.far ? STRINGS.hud.tooFar : s.focused && !s.available && s.blockedText ? s.blockedText : '';
       setText(m.reason, reason);
       setShown(m.reason, reason !== '');
       let wantLabel = s.focused || this.isBlinking(s) || p.far || !explore;
-      let dy = 0;
+      let dx = 0, dy = 0;
       if (wantLabel) {
-        const lw = (Math.max(2, [...s.label].length) * 0.92 + 1.3 + (s.focused && s.available && keyable ? 1.6 : 0)) * em;
-        const lh = (reason ? 2.6 : 1.5) * em;
-        const dir = p.npc && !p.vfFocus ? -1 : 1;
-        const base = p.npc && !p.vfFocus ? p.y - 0.85 * em - lh : p.y + (p.vfFocus ? 0 : (s.focused ? 1.05 : 0.85) * em);
+        // M4 第 2 轮：实测标签尺寸（按样式与文字缓存，只在第一次出现时量一次）
+        const size = this.measureTag(m, `${s.label}|${reason}|${keyOn ? 1 : 0}|${s.focused ? 1 : 0}|${s.available && !p.far ? 1 : 0}`);
+        const lw = size.w, lh = size.h;
+        const up = (p.npc && !p.vfFocus) || (p.vfFocus && p.side === 'above');
+        const dir = up ? -1 : 1;
+        // 标签矩形的左上角（相对锚点）：居中的在 x − w/2；准星右侧的左对齐
+        const bx = p.vfFocus && p.side === 'right' ? p.x : p.x - lw / 2;
+        const by = p.vfFocus
+          ? (p.side === 'right' ? p.y - lh / 2 : p.side === 'above' ? p.y - lh : p.y)
+          : up ? p.y - 0.85 * em - lh : p.y + (s.focused ? 1.05 : 0.85) * em;
+        // 候选位置：原位 → （取景器里）左右各让 0.6 个标签宽 → 往下（NPC 往上）一行、两行
+        const step = 1.55 * em;
+        const cands: [number, number][] = vf && !p.vfFocus
+          ? [[0, 0], [0.6 * lw, 0], [-0.6 * lw, 0], [0, dir * step], [0.6 * lw, dir * step], [-0.6 * lw, dir * step]]
+          : [[0, 0], [0, dir * step], [0, dir * 2 * step]];
         let ok = false;
-        for (let k = 0; k < 3 && !ok; k++) {
-          const y0 = base + dir * k * 1.55 * em;
-          const r = { x0: p.x - lw / 2, y0, x1: p.x + lw / 2, y1: y0 + lh };
+        for (const [cx, cy] of cands) {
+          const r = { x0: bx + cx, y0: by + cy, x1: bx + cx + lw, y1: by + cy + lh };
           if (!rects.some(o => r.x0 < o.x1 && r.x1 > o.x0 && r.y0 < o.y1 && r.y1 > o.y0)) {
             rects.push(r);
-            dy = dir * k * 1.55 * em;
+            dx = cx;
+            dy = cy;
             ok = true;
+            break;
           }
         }
-        // 聚焦者总显示名字（哪怕和别人叠着）
+        // 聚焦者总显示名字（哪怕和别人叠着）；其余推不开的只留角框
         if (!ok && s.focused) {
           ok = true;
-          dy = 0;
+          dx = dy = 0;
         }
         wantLabel = ok;
       }
       setClass(m.root, 'cm-nolabel', !wantLabel);
-      setStyle(m.tag, 'marginTop', dy > 0 ? `${dy.toFixed(1)}px` : '');
-      setStyle(m.tag, 'marginBottom', dy < 0 ? `${(-dy).toFixed(1)}px` : '');
+      // M4 第 2 轮更正：setStyle 走 style.setProperty，属性名必须是 kebab-case——原来写的 'marginTop' 静默无效，第 1 轮的“推一行”从没生效过
+      setStyle(m.tag, 'margin-top', dy > 0 ? `${dy.toFixed(1)}px` : '');
+      setStyle(m.tag, 'margin-bottom', dy < 0 ? `${(-dy).toFixed(1)}px` : '');
+      setStyle(m.tag, 'margin-left', dx !== 0 ? `${dx.toFixed(1)}px` : '');
     }
     for (const [id, m] of this.markers) {
       if (!m.seen) {
@@ -250,11 +294,36 @@ export class HudView implements View {
     }
   }
 
+  /**
+   * M4 第 2 轮：名字标签的实际像素尺寸（offsetWidth/Height，按 key 缓存——key 含文字、原因行、E 键、聚焦/灰色样式；窗口尺寸变了整表清空）。
+   * 量之前先去掉 cm-nolabel（display:none 量不出来）；只在缓存未命中时强制排版一次。
+   */
+  private measureTag(m: MarkerEl, key: string): { w: number; h: number } {
+    const hit = this.tagSize.get(key);
+    if (hit) return hit;
+    setClass(m.root, 'cm-nolabel', false);
+    const w = m.tag.offsetWidth, h = m.tag.offsetHeight;
+    const em = this.emCache;
+    // 还没排版（隐藏的祖先）时量出 0：退回估算，不缓存
+    if (w <= 0 || h <= 0) return { w: (Math.max(2, key.split('|')[0]!.length) * 0.92 + 1.3) * em, h: 1.5 * em };
+    const size = { w, h };
+    if (this.tagSize.size > 400) this.tagSize.clear();
+    this.tagSize.set(key, size);
+    return size;
+  }
+
+  /** 读字框此刻是否显示（取景器聚焦名改画在准星上方）。 */
+  private readShown(): boolean {
+    const r = this.game.sys.read;
+    return r.reading !== null || r.hint !== null;
+  }
+
   /** 根字号（像素）：角标避让按 em 估算标签大小。 */
   private emPx(): number {
     // 根字号只随视口变（clamp(13px, 1.9vmin + 4px, 22px)）：按视口尺寸缓存，免得每帧 getComputedStyle
     const key = `${window.innerWidth}x${window.innerHeight}`;
     if (key === this.emKey) return this.emCache;
+    this.tagSize.clear();
     const el = this.markersEl.parentElement ?? this.markersEl;
     const f = parseFloat(getComputedStyle(el).fontSize);
     this.emKey = key;
@@ -338,7 +407,7 @@ export class HudView implements View {
 
 // ---------------------------------------------------------------- 字幕与反馈条（#subs）
 
-interface SubLine { el: HTMLElement; text: string; left: number }
+interface SubLine { el: HTMLElement; text: string; left: number; hint?: boolean }
 interface ToastLine { el: HTMLElement; text: string; kind: ToastKind; left: number }
 
 /** 同时最多显示的字幕行与反馈条数。 */
@@ -373,13 +442,24 @@ export class SubtitleLayer {
     return this.subs.length ? this.subsBox.offsetHeight : 0;
   }
 
-  /** dur 缺省按字数：每字 0.12 秒，最少 2 秒（ARCH §6.3 say）。同文字正在显示时只刷新时长。 */
-  subtitle(text: string, who: SpeakerId | '' | undefined, dur?: number): void {
+  /**
+   * dur 缺省按字数：每字 0.12 秒，最少 2 秒（ARCH §6.3 say）。同文字正在显示时只刷新时长。
+   * M4 第 2 轮：kind 'hint'（H 的提示）——先撤掉屏幕上别的提示行再加（替换，不叠两行）。
+   */
+  subtitle(text: string, who: SpeakerId | '' | undefined, dur?: number, kind?: 'hint'): void {
     const sec = dur ?? readSec(text);
+    if (kind === 'hint') {
+      this.subs = this.subs.filter(l => {
+        if (!l.hint || l.text === text) return true;
+        l.el.remove();
+        return false;
+      });
+    }
     const same = this.subs.find(s => s.text === text);
     if (same) {
       same.left = Math.max(same.left, sec);
       same.el.classList.remove('cm-leaving');
+      if (kind === 'hint') same.hint = true;
       return;
     }
     const el = h('div', 'cm-sub');
@@ -395,7 +475,7 @@ export class SubtitleLayer {
       el.append(h('span', 'cm-who', `${speakerName(w)}：`), document.createTextNode(text));
     }
     this.subsBox.append(el);
-    this.subs.push({ el, text, left: sec });
+    this.subs.push(kind === 'hint' ? { el, text, left: sec, hint: true } : { el, text, left: sec });
     while (this.subs.length > MAX_SUBS) this.subs.shift()?.el.remove();
   }
 
@@ -428,6 +508,15 @@ export class SubtitleLayer {
   /** M4：让某条还在显示的反馈条/教学条立刻淡出（动作已经做了的教学提示）。 */
   dismiss(text: string): void {
     for (const t of this.toasts) if (t.text === text && t.left > 0) t.left = 0;
+  }
+
+  /** M4 第 2 轮：还剩 ≥ minLeft 秒的这条反馈条直接撤掉（过场开始时收回没读完的教学条）；撤了返回 true。 */
+  takeBack(text: string, minLeft: number): boolean {
+    const hit = this.toasts.find(t => t.text === text && t.left >= minLeft);
+    if (!hit) return false;
+    hit.el.remove();
+    this.toasts = this.toasts.filter(t => t !== hit);
+    return true;
   }
 
   /** 这段文字此刻是否已作为字幕或反馈条显示着（去重用）。 */

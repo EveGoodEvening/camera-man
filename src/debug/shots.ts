@@ -167,8 +167,10 @@ export async function runShot(game: Game, area: AreaKey, shotId: string, overlay
   // （开页面时已经弹出来的也收起：下面的 advance 里淡出）
   for (const t of [STRINGS.tutorial.interact, STRINGS.tutorial.zoom]) {
     game.state.markSeen(`tutorial:${t}`);
-    game.ui.subs.dismiss(t);
+    game.ui.dismiss(t);
   }
+  // M4 第 2 轮：上一张机位里排队、还没显示的教学条/新页提示也丢掉
+  game.ui.resetHeld();
   game.sys.shichen.resetClock();
 
   // 2. 进入区域（总是重建：灯、NPC 站位、雾都在 build 里按 flags 推导）

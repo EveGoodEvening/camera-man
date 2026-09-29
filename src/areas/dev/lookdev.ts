@@ -355,8 +355,7 @@ export const LOOKDEV_SHOTS: NonNullable<AreaPart['shots']> = [
     id: 'shot.dev.lookdev_replay', label: 'look-dev：回放（seg.gate_2026 第 9.5 秒，VHS 与回放人影）',
     view: { player: [8.4, 7.3], yaw: 178, pitch: 6, mode: 'vf', zoom: 1, replay: { point: RP.R1_GATE, seg: SEG.GATE_2026, t: 9.5 } }, ui: true,
     preset: { flags: { [F.R1_ABILITY_REPLAY]: true } },
-    // M4：VHS 调色 + 扫描线下灯芯的亮度贴着 0.8 上下跳（同一构建多次截图 0.28%–0.56%），高光阈值放到 0.7（灯仍然必须是亮的）
-    highlight: 0.7,
+    // M4 第 2 轮：高光验收改看 3×3 模糊后的第 99.5 百分位（shots.mjs），VHS 扫描线与颗粒不再让它上下跳，撤掉原来放宽的 highlight 0.7
   },
 ];
 

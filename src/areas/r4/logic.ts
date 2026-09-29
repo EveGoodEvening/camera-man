@@ -121,8 +121,8 @@ const showIr: Handler = async g => {
     return;
   }
   if (!g.state.flag(F.R4_HUANG_ADMITS)) {
-    // 前置未满足（还没认账）：和出示别的照片一样
-    huangSays(g, TEXT.fb.huangWhat);
+    // 前置未满足（还没认账；pt.huang_ir 揭面具后就拍得到，M4 第 2 轮）：他认得这是自己，但账没算清，不给带子、不写 flag
+    huangSays(g, TEXT.fb.huangIrEarly);
     return;
   }
   // P11 完成：给带子、设 r4.got_tape（进入寅时）、写寅时槽，再开对话

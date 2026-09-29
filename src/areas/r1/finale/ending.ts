@@ -100,9 +100,21 @@ function excavatorGeometry(): THREE.BufferGeometry {
 
 /** 尾声的 CH1：同一个位置，镜头抬起来一点（天亮了，看得见院墙外的天和挖掘机的剪影）。 */
 export const EPILOGUE_CAM: CameraPose = { pos: [-4.85, 2.75, 20.2], target: [-1.16, 1.72, 23.41], fov: 60 };
-/** 梯子脚、工人爬到的地方（M4：比原来低 0.3m、往梯子脚挪一点：安全帽与肩膀是完整的侧影，最多占画面三分之一，不再是正中一个黑洞） */
-export const WORKER_FOOT: V3 = [-4.05, 0, 20.62];
-export const WORKER_ON_LADDER: V3 = [-4.26, 0.62, 20.54];
+/**
+ * 梯子脚、梯子顶、工人爬到的地方。M4 第 2 轮：梯子往南挪到门洞南边的东墙上，工人只爬到第二档——
+ * 远景（开车、爬梯子、擦镜头、伸手）里他在画面右下角，只露出安全帽和一侧肩膀、最后一只手套伸向镜头；
+ * “抬头冲镜头”那一拍镜头自己低头看他（见 cutscenes.ts 的 WORKER_LOOK_CAM）。
+ * 原来 (-4.26,0.62,20.54) 离机位水平只有 0.6m、头顶离镜头 0.3m，头、肩、举起的胳膊占画面下方中间近一半。
+ */
+export const WORKER_FOOT: V3 = [-4.2, 0, 21.2];
+export const LADDER_TOP: V3 = [-4.93, 2.45, 20.98];
+export const WORKER_ON_LADDER: V3 = [-4.29, 0.3, 21.17];
+/** 工人头部（look_up 时大约的位置；镜头低头看他用） */
+export const WORKER_HEAD: V3 = [WORKER_ON_LADDER[0] - 0.05, WORKER_ON_LADDER[1] + 1.66, WORKER_ON_LADDER[2] - 0.03];
+
+/** 挖掘机开车起点（院门东边）与整段尾声往西挪的距离（沿人行道） */
+export const EXCAVATOR_X0 = 9;
+export const EXCAVATOR_RUN = 8;
 
 export interface EpilogueSet {
   group: THREE.Group;
@@ -118,10 +130,11 @@ export function buildEpilogue(ctx: AreaContext): EpilogueSet {
   group.name = 'fin.epilogue';
   const sky = morningSky(ctx);
   group.add(sky);
-  // 挖掘机：院墙外人行道上从东往西开过去（扬尘的晨雾把它压成剪影）
-  const excavator = new THREE.Mesh(excavatorGeometry(), basic(ctx, '#2b2622'));
+  // 挖掘机：院墙外马路上从东往西开过去（晨雾天光里的深色剪影；M4 第 2 轮：不吃雾——吃雾时大部分帧只是门后一个灰方块，动臂看不到）
+  const excavator = new THREE.Mesh(excavatorGeometry(), basic(ctx, '#38332d', { fog: false }));
   excavator.name = 'fin.excavator';
-  excavator.position.set(16, 0, 27.6);
+  // 在院外马路的近侧车道上（路面低 0.14m）：离院门 10m，动臂从院门上方露出来，是晨雾天光里的一个剪影，不是贴在门后的一堆黑方块
+  excavator.position.set(EXCAVATOR_X0, -0.14, 33.5);
   excavator.rotation.y = Math.PI;
   group.add(excavator);
   // 靠在门岗东墙上的梯子（支架正下方）
@@ -129,7 +142,7 @@ export function buildEpilogue(ctx: AreaContext): EpilogueSet {
   ladder.name = 'fin.ladder';
   const railMat = basic(ctx, '#3a3632');
   const foot = new THREE.Vector3(...WORKER_FOOT);
-  const top = new THREE.Vector3(-4.93, 2.45, 20.3);
+  const top = new THREE.Vector3(...LADDER_TOP);
   const along = top.clone().sub(foot);
   const len = along.length();
   for (const s of [-0.22, 0.22]) {
@@ -144,12 +157,19 @@ export function buildEpilogue(ctx: AreaContext): EpilogueSet {
     ladder.add(rung);
   }
   group.add(ladder);
-  // 拆迁工人（剪影）：M4 换成逆光的 matcap（深暖灰，轮廓一圈晨雾的亮边）、吃雾，不再是 #0b0d12 的平涂黑块
-  const worker = createCharacter('worker', { look: 'silhouette', seed: 28 });
+  // 拆迁工人：身子是逆光的深色剪影（matcap 中间近黑、轮廓一圈晨雾的亮边，吃雾），安全帽留一点暗橙（画面里唯一的色块）；
+  // 脸保留人偶自己的五官材质（M4 第 2 轮：“抬头冲镜头”那一拍镜头低头看他，看得见一张抬起来的脸——呼应 03:14 老周抬头）
+  const worker = createCharacter('worker', { look: 'live', seed: 28 });
   const workerMat = ctx.track(new THREE.MeshMatcapMaterial({ color: '#ffffff', matcap: ctx.track(rimMatcapTexture()), fog: true }));
+  const hatMat = ctx.track(new THREE.MeshMatcapMaterial({ color: new THREE.Color('#D86A1E').multiplyScalar(0.55), matcap: ctx.track(matcapTexture('#f3dcc0', '#6c7280')), fog: true }));
+  const hat = worker.props.hardHat;
   worker.root.traverse(o => {
     const m = o as THREE.Mesh;
-    if (m.isMesh) m.material = workerMat;
+    if (!m.isMesh) return;
+    if (m.name === 'head') return;
+    let inHat = false;
+    for (let p: THREE.Object3D | null = m; p; p = p.parent) if (p === hat) inHat = true;
+    m.material = inHat ? hatMat : workerMat;
   });
   worker.root.position.copy(foot);
   worker.root.visible = false;
@@ -179,8 +199,11 @@ export interface CreditsStage {
   textures: THREE.CanvasTexture[];
   /** 显示第 i 张（null = 黑场） */
   show(i: number | null, a01: number, t01: number): void;
-  /** 把玩家自己拍的缩略图贴上去（建好以后才拍到的也补上：合影 ph.final 是在 cs.r1.fin_soul 里拍的） */
-  refreshThumbs(g: GameApi): void;
+  /**
+   * 把玩家自己拍的缩略图贴上去（建好以后才拍到的也补上：合影 ph.final 是在 cs.r1.fin_soul 里拍的）。
+   * print：合影那一刻按 CH1 位姿留下的大照片（M4 第 2 轮）——有就铺满合影卡的画面区，不再是右下角一张很暗的小贴片。
+   */
+  refreshThumbs(g: GameApi, print?: HTMLCanvasElement | null): void;
 }
 
 /** 片尾照片用玩家自己拍的缩略图（GameApi.photo.record，只读；M3 补的接口，docs/requests/r1-finale.md #1）；没有就只用画好的卡片。 */
@@ -190,13 +213,13 @@ function ownThumb(g: GameApi, id: CreditPhoto): string | undefined {
 
 /**
  * 这两张手绘卡保留画面、玩家的缩略图只做右下角的一张小贴片（M4）：
- * ph.tape_face 的缩略图是斜着拍 CRT 的画面，老周只有几十像素高；ph.final 是 04:57 的夜景，没头的身子和黑夜融在一起——
- * 盖满画面区反而看不清脸。
+ * ph.tape_face 的缩略图是斜着拍 CRT 的画面，老周只有几十像素高；ph.final 的缩略图只有 192×144、是 04:57 的夜景——
+ * 盖满画面区反而看不清脸。ph.final 有合影那一刻留下的大照片（refreshThumbs 的 print）时改为铺满（M4 第 2 轮）。
  */
 const INSET_ONLY: ReadonlySet<CreditPhoto> = new Set<CreditPhoto>(['ph.tape_face', 'ph.final']);
 
-/** 把一张缩略图贴进卡片：整幅（先清掉画面区、提亮夜景）或右下角的小贴片（白边、微微歪着）。 */
-function pasteThumb(cg: CanvasRenderingContext2D, img: CanvasImageSource, inset: boolean): void {
+/** 把一张缩略图贴进卡片：整幅（先清掉画面区、提亮夜景；lift = false 时原样贴）或右下角的小贴片（白边、微微歪着）。 */
+function pasteThumb(cg: CanvasRenderingContext2D, img: CanvasImageSource, inset: boolean, lift = true): void {
   const P = CARD_SIZE.pic;
   cg.save();
   if (inset) {
@@ -214,7 +237,7 @@ function pasteThumb(cg: CanvasRenderingContext2D, img: CanvasImageSource, inset:
     // 手绘底图有一部分画到了画面区外（磷绿的 CRT 光），先把画面区连同一圈边一起清成黑，再贴
     cg.fillStyle = '#111';
     cg.fillRect(P.x - 4, P.y - 4, P.w + 8, P.h + 8);
-    cg.filter = 'brightness(1.5) contrast(1.1)';
+    cg.filter = lift ? 'brightness(1.5) contrast(1.1)' : 'none';
     cg.drawImage(img, P.x, P.y, P.w, P.h);
     cg.filter = 'none';
     cg.strokeStyle = 'rgba(0,0,0,0.25)';
@@ -241,9 +264,20 @@ export function buildCredits(ctx: AreaContext, g: GameApi): CreditsStage {
     tex.anisotropy = 4;
     textures.push(tex);
   });
-  const refreshThumbs = (api: GameApi): void => {
+  let printed = false;
+  const refreshThumbs = (api: GameApi, print?: HTMLCanvasElement | null): void => {
     if (typeof Image === 'undefined') return;
+    const fi = CREDIT_PHOTOS.indexOf('ph.final');
+    if (print && !printed && fi >= 0) {
+      const cg = canvases[fi]!.getContext('2d');
+      if (cg) {
+        printed = true;
+        pasteThumb(cg, print, false, false);
+        textures[fi]!.needsUpdate = true;
+      }
+    }
     CREDIT_PHOTOS.forEach((id, i) => {
+      if (id === 'ph.final' && printed) return;
       const thumb = ownThumb(api, id);
       if (!thumb || pasted.get(id) === thumb) return;
       pasted.set(id, thumb);

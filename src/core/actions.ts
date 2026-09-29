@@ -149,6 +149,8 @@ export const KEYMAP: Record<ModeId, Partial<Record<Button, KeyBinding>>> = {
     // M4：Enter 也能推进（原来只有 E/空格）
     Enter: press({ t: 'advance' }),
     ...digits(1, 4, n => ({ t: 'choose', k: n })),
+    // M4 第 2 轮：对话里 Esc = 暂停菜单（只压暂停，不取消对话；强制对话同样只是暂停）
+    Escape: press({ t: 'back' }),
   },
   'mode.album': {
     ...digits(1, 2, n => ({ t: 'digit', n })),
@@ -174,6 +176,8 @@ export const KEYMAP: Record<ModeId, Partial<Record<Button, KeyBinding>>> = {
     MouseLeft: press({ t: 'shutter' }),
     ...WHEEL_ZOOM,
     Space: press({ t: 'play' }),
+    // M4 第 2 轮：过场里 Esc = 暂停菜单（开场、终章这样的长段落也能调音量、字号）
+    Escape: press({ t: 'back' }),
   },
   'mode.pause': {
     Escape: press({ t: 'back' }),

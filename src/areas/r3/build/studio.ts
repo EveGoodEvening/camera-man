@@ -12,7 +12,7 @@ import { kitMat } from '../../../kit/geom';
 import { designLight } from '../../../kit/lamps';
 import { PROPS } from '../../../kit/props';
 import { rng, range } from '../../../kit/rng';
-import { BACKDROP, BIG_CAMERA, DARK, EASEL, PARTITION, SHOP, STOOL, STUDIO_LAMP, TLR, RULES } from '../layout';
+import { BACKDROP, BIG_CAMERA, DARK, EASEL, FACADE, PARTITION, SHOP, STOOL, STUDIO_LAMP, TLR, RULES } from '../layout';
 import { TEXT } from '../text';
 import { Batch, contactShadows, paintedMat, trackTree } from './util';
 import { atlasQuads } from './shop';
@@ -128,6 +128,10 @@ export function buildStudio(ctx: AreaContext, B: Batch, atlas: THREE.Texture): S
   ctx.collider.box([(SHOP.x1 + SHOP.inEast) / 2, 1.7, (z0 + z1) / 2], [SHOP.x1 - SHOP.inEast, 3.4, z0 - z1]);
   ctx.collider.box([(SHOP.inWest + dx0) / 2, 1.7, z1], [dx0 - SHOP.inWest, 3.4, 0.15]);
   ctx.collider.box([(dx1 + SHOP.inEast) / 2, 1.7, z1], [SHOP.inEast - dx1, 3.4, 0.15]);
+  // 暗房门楣与影棚顶棚的碰撞板（M4 第 2 轮：第三人称相机只躲碰撞体，低头时吊臂会钻进顶棚板、门楣里）；
+  // 顶棚板一直补到楼上那块碰撞体的底（FACADE.groundH）
+  ctx.collider.box([DARK.doorX, (2.2 + SHOP.studioCeil) / 2, z1], [dx1 - dx0, SHOP.studioCeil - 2.2, 0.15]);
+  ctx.collider.box([0, (SHOP.studioCeil + FACADE.groundH) / 2, (z0 + z1) / 2], [SHOP.x1 - SHOP.x0, FACADE.groundH - SHOP.studioCeil, z0 - z1]);
 
   // 背景布（北墙，暗房门以东；4 卷：灰、天蓝、山水、暗红）
   const bdTex = ctx.track(paintTexture(768, 384, backdrops));

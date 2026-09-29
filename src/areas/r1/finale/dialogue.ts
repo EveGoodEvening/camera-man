@@ -47,8 +47,9 @@ export const DIALOGUES = defineDialogues('r1', {
     nodes: {
       l0: { who: NPC.ZHOU, text: ZHOU.afterWonton, next: 'l1', effects: () => { const r = rt(); if (r) r.zhouOverride = { pose: 'sit', variant: 'nocap' }; } },
       l1: { who: NPC.ZHOU, text: ZHOU.look, next: 'c1' },
+      // 选项节点带上刚才那句（M4 第 2 轮：原来没有正文，出选项时对话框里只剩名字“老周”和两个动作；同文本打字机不重播）
       c1: {
-        type: 'choice', who: NPC.ZHOU,
+        type: 'choice', who: NPC.ZHOU, text: ZHOU.look,
         options: [
           { label: ZHOU.optRec, next: 'recReply' },
           { label: ZHOU.optTurn, next: 'turn' },
@@ -62,7 +63,7 @@ export const DIALOGUES = defineDialogues('r1', {
       l5: { who: NPC.ZHOU, text: ZHOU.thatNight, next: 'l6' },
       l6: { who: NPC.ZHOU, text: ZHOU.grewUp, next: 'c2' },
       c2: {
-        type: 'choice', who: NPC.ZHOU,
+        type: 'choice', who: NPC.ZHOU, text: ZHOU.grewUp,
         options: [
           { label: ZHOU.optShow, next: 'show', when: `photo(${PH.TRUE_FORM})` },
           { label: ZHOU.optNoShow, next: 'knock' },

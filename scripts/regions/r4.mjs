@@ -15,7 +15,33 @@ export const AREA = 'r4';
 export const PRESET_NAMES = ['r2_start', 'r3_start', 'r4_start', 'yin'];
 for (const p of PRESET_NAMES) if (!(p in PRESETS)) throw new Error(`presets.mjs 没有预置 ${p}`);
 
-export const STEPS = pickSteps(38, 45);
+/**
+ * 步骤 43 的本区版本（M4 第 2 轮）：dlg.r4.huang_normal 拆成旁白“（他半天没出声，尾巴垂下去）”+ 黄三爷的台词两行；
+ * walkthrough.mjs 只查第一行的“半天没出声”，这里另断言两行的说话人与正文（旁白不挂名字、台词不带括注）。
+ */
+async function step43(g) {
+  await g.call('aimAt', 'pt.huang_normal');
+  const r = await g.call('shoot');
+  g.assert(r && r.photo === 'ph.huang_normal', `shoot() 应得到 ph.huang_normal，实际 ${JSON.stringify(r)}`);
+  await tryFeedback(g, '半天没出声', 'show', 'npc.huang', 'ph.huang_normal');
+  g.assert(g.snap.dialogue && g.snap.dialogue.who === '' && g.snap.dialogue.text === '（他半天没出声，尾巴垂下去）', `第一行应是单独的旁白：${JSON.stringify(g.snap.dialogue)}`);
+  await nextLine(g, 'npc.huang');
+  g.assert(g.snap.dialogue && g.snap.dialogue.text === '……你瞅见的是这个。你再好好瞅瞅。', `旁白之后是黄三爷的台词（不带括注）：${JSON.stringify(g.snap.dialogue)}`);
+  await g.call('dlg');
+}
+
+/** 对话按一下空格，等到说话人变成 who（锁步下按键在下一帧才生效）。 */
+async function nextLine(g, who) {
+  await g.page.keyboard.press('Space');
+  for (let i = 0; i < 20; i++) {
+    await g.call('frame', 1);
+    const st = await g.refresh();
+    if (st.dialogue && st.dialogue.who === who) return;
+  }
+  g.assert(false, `按空格后说话人应变成 ${who}：${JSON.stringify(g.snap.dialogue)}`);
+}
+
+export const STEPS = pickSteps(38, 45, { 43: { run: step43 } });
 /** 读档复验点：下一步以 goto 开头、且不依赖取景器仍开着（读档后模式复位为 explore）。 */
 export const RELOAD_AT = [38, 45];
 
@@ -23,6 +49,35 @@ const MARKET = { flags: { 'r4.ghost_market_open': true }, items: [{ id: 'it.mone
 const FOUND = { flags: { ...MARKET.flags, 'r4.spotted_huang': true, 'r4.found_huang': true }, items: MARKET.items };
 const ASKED = { flags: { ...FOUND.flags, 'r4.asked_tape': true }, items: FOUND.items };
 const ADMITS = { flags: { ...ASKED.flags, 'r4.huang_admits': true }, items: FOUND.items, photos: ['ph.huang_hides'] };
+
+/** 摊前按 R 的几个站位（GDD P10 的 (3.8,0.2)，及残影点 2.5m 内偏西、偏东、再往前的几处）。 */
+const STALL_SPOTS = [[3.8, 0.2], [3, 0], [2.2, 0.3], [4.8, 0.6]];
+/** 其中离樟木箱 2.3m 以外的（引擎把转向俯仰夹在 −15° 也够）与贴着箱子的（要引擎放开俯仰）。 */
+const STALL_SPOTS_FAR = [[3, 0], [2.2, 0.3]];
+const STALL_SPOTS_NEAR = [[3.8, 0.2], [4.8, 0.6]];
+
+/** P10：在摊前各站位按 R，等转向走完（TURN_SEC 0.4），不动视角跳到第 12 秒按快门，应得到 ph.huang_hides。 */
+async function noMouseHides(g, spots) {
+  for (const [x, z] of spots) {
+    await g.call('goto', 'r4', x, z);
+    await g.call('vf', true);
+    await g.call('replay', 'rp.r4_stall', 'seg.stall_2023');
+    await g.call('wait', 0.6);
+    await g.call('replaySeek', 12);
+    const st = await g.refresh();
+    const r = await g.call('shoot');
+    g.assert(r && r.photo === 'ph.huang_hides', `(${x},${z}) 进段后原样按快门应得到 ph.huang_hides（yaw ${st.yaw}、pitch ${st.pitch}）：${JSON.stringify(r)}`);
+    await g.call('replayExit');
+  }
+}
+
+/** 取景器画面中心（镜头在头前 0.18m）到地面点 p=[x,z] 的水平偏角（度，右正左负无所谓，只看绝对值）。yaw 0 = −z、90 = +x。 */
+function yawOff(st, p) {
+  const r = (st.yaw * Math.PI) / 180;
+  const ex = st.pos[0] + Math.sin(r) * 0.18, ez = st.pos[2] - Math.cos(r) * 0.18;
+  const want = (Math.atan2(p[0] - ex, -(p[1] - ez)) * 180) / Math.PI;
+  return ((want - st.yaw + 540) % 360) - 180;
+}
 
 const STALL_IDS = ['r4.stall_n1', 'r4.stall_n2', 'r4.stall_n3', 'r4.stall_n4', 'r4.stall_n5', 'r4.stall_s1', 'r4.stall_s2', 'r4.stall_s4', 'r4.stall_s5'];
 
@@ -231,12 +286,70 @@ export const CASES = [
     },
   },
   {
-    puzzle: 'P10', name: '前置未满足：认账前出示红外照，不给带子', preset: 'r4_start', extra: { ...FOUND, photos: ['ph.huang_ir'] },
+    puzzle: 'P10', name: '前置未满足：认账前红外照拍得到（不是“颜色不对”），出示了也不给带子', preset: 'r4_start', extra: FOUND,
     run: async g => {
+      // M4 第 2 轮：pt.huang_ir 揭面具后就能拍（原先要等认账，认账前红外里拍他得空镜“颜色不对”，把人带偏）
       await g.call('goto', 'r4', 3, 0.6);
-      await tryFeedback(g, '这啥？三爷不认得。', 'show', 'npc.huang', 'ph.huang_ir');
+      await g.call('vf', true);
+      await g.call('lens', 'ir');
+      await g.call('aimAt', 'pt.huang_ir');
+      const r = await g.call('shoot');
+      g.assert(r && r.photo === 'ph.huang_ir', `认账前红外里拍黄三爷应得到 ph.huang_ir：${JSON.stringify(r)}`);
+      await g.call('lens', 'normal');
+      await g.call('vf', false);
+      await tryFeedback(g, '急啥？账还没算清呢。', 'show', 'npc.huang', 'ph.huang_ir');
+      g.assert((g.snap.subtitle ?? '').includes('急啥？账还没算清呢。') && !g.snap.dialogue, `应是黄三爷带名字的一句字幕，不开对话：${JSON.stringify({ sub: g.snap.subtitle, dlg: g.snap.dialogue })}`);
       await g.call('dlg');
       await g.check.noFlags('r4.got_tape', 'r4.huang_admits');
+      g.expect.noFlags('r4.asked_tape');
+    },
+  },
+  {
+    puzzle: 'P10', name: '在摊前按 R：镜头自己转向樟木箱（影子与箱子都在画框横向中央 60% 里）', preset: 'r4_start', extra: ASKED,
+    run: async g => {
+      // M4 第 2 轮：seg.stall_2023 的 focus（原先转到人影平均点，朝通道西侧 yaw≈244°，箱子在身后左边）。
+      // debug replay() 先转向残影点再按 R，与玩家对着旋涡按 R 相同；等 0.6 秒让转向走完（TURN_SEC 0.4）
+      for (const [x, z] of STALL_SPOTS) {
+        await g.call('goto', 'r4', x, z);
+        await g.call('vf', true);
+        await g.call('replay', 'rp.r4_stall', 'seg.stall_2023');
+        await g.call('wait', 0.6);
+        const st = await g.refresh();
+        for (const [what, p] of [['樟木箱', [4.3, 2.4]], ['黄三爷蹲下塞带子的地方', [3.6, 2.35]]]) {
+          const d = yawOff(st, p);
+          g.assert(Math.abs(d) <= 20, `(${x},${z}) 进段后${what}应在画框横向中央 60% 以内（差 ${d.toFixed(1)}°，yaw ${st.yaw}）`);
+        }
+        await g.call('replayExit');
+      }
+    },
+  },
+  {
+    // 离箱子 2.3m 以外按 R：影子（上身）与箱盖都在画框中央 60% 里（pt.huang_hides 的锚点，M4 第 2 轮）
+    puzzle: 'P10', name: '在摊前偏西按 R 不动鼠标，第 12 秒直接按快门就是 ph.huang_hides', preset: 'r4_start', extra: ASKED,
+    run: async g => noMouseHides(g, STALL_SPOTS_FAR),
+  },
+  {
+    // 箱子在地上，从 (3.8,0.2) 看要俯到 −25° 左右才居中。引擎的回放转向原来一律把俯仰夹到 ≥ −15°，箱盖落在画框下沿（ndc.y ≈ −0.71，
+    // 判定框 0.6），按快门得空镜“没对准”；M4 第 2 轮整合改成写了 focus 的片段俯仰下限 −40°（src/game/replay.ts TURN_MIN_PITCH_FOCUS）。
+    puzzle: 'P10', name: '贴着箱子（GDD 的 (3.8,0.2)）按 R 不动鼠标，第 12 秒直接按快门就是 ph.huang_hides', preset: 'r4_start', extra: ASKED,
+    run: async g => noMouseHides(g, STALL_SPOTS_NEAR),
+  },
+  {
+    // 旧照六（M4 第 2 轮）：seg.mid_1997 的 focus 对着红绸后头的街坊，pt.old_6 的锚点在人头高度；
+    // 从西边过来（玩家走的方向）或贴着人堆按 R，不动鼠标，第 9 秒按快门就是 ph.old_6
+    name: '旧照六：在残影点周围按 R 不动鼠标，第 9 秒直接按快门就是 ph.old_6', preset: 'r4_start',
+    run: async g => {
+      for (const [x, z] of [[-7, 0], [-8, -0.6], [-6.5, 1], [-5, 0.4]]) {
+        await g.call('goto', 'r4', x, z);
+        await g.call('vf', true);
+        await g.call('replay', 'rp.r4_mid', 'seg.mid_1997');
+        await g.call('wait', 0.6);
+        await g.call('replaySeek', 9);
+        const st = await g.refresh();
+        const r = await g.call('shoot');
+        g.assert(r && r.photo === 'ph.old_6', `(${x},${z}) 进段后原样按快门应得到 ph.old_6（yaw ${st.yaw}、pitch ${st.pitch}）：${JSON.stringify(r)}`);
+        await g.call('replayExit');
+      }
     },
   },
   {

@@ -4,7 +4,7 @@
 
 import { defineDialogues, seq } from '../../game/dialogue';
 import type { DNode, DialogueDef } from '../../game/dialogue';
-import { DLG, NPC, SPK } from '../../data/ids';
+import { DLG, F, NPC, SPK } from '../../data/ids';
 import type { DialogueId, SpeakerId } from '../../data/ids';
 import { TEXT } from './text';
 import { FLOORS, floorOf } from './layout';
@@ -42,6 +42,8 @@ export const DIALOGUES = defineDialogues('r2', {
         options: [
           { label: TEXT.stairs.up, next: 'end', when: s => floorOf(s) < FLOORS, effects: g => g.setLevel(floorOf(g.state) + 1) },
           { label: TEXT.stairs.down, next: 'end', when: s => floorOf(s) > 1, effects: g => g.setLevel(floorOf(g.state) - 1) },
+          // M4 第 2 轮节奏：P5 做完（r2.wang_done）以后楼里没事了，三楼及以上多一个“下到一楼”，一次淡出直接回门厅
+          { label: TEXT.stairs.ground, next: 'end', when: s => floorOf(s) > 2 && s.flag(F.R2_WANG_DONE), effects: g => g.setLevel(1) },
           { label: TEXT.stairs.cancel, next: 'end' },
         ],
       },

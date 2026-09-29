@@ -18,6 +18,7 @@ import type { Game } from '../core/game';
 import type { ItemEntry, PhotoRecord } from './state';
 import { FLAG_IDS, ITEM_IDS, KEY_PHOTO_IDS, NUMERIC_MAX, maxEmptyNo } from './state';
 import { devWarn } from '../core/log';
+import { STRINGS } from '../data/strings';
 
 export interface SaveDataV1 {
   v: 1; savedAt: number;
@@ -98,6 +99,8 @@ export class SaveSystem {
   private pendingYin = false;
   /** 存储不可用时的内存后备（通关标记） */
   private completedMem: boolean | null = null;
+  /** M4 第 2 轮：写入失败已经提示过（一个页面只提示一次） */
+  private writeWarned = false;
 
   constructor(game: Game) {
     this.game = game;
@@ -155,6 +158,12 @@ export class SaveSystem {
     }
     if (!ok) {
       devWarn(`存档 ${slot} 写入失败，只在内存中继续`);
+      // M4 第 2 轮：告诉玩家（存储被禁用、配额满时原来毫无提示，关页面就丢进度）；一个页面只提示一次。
+      // 浏览器禁用站点数据时 storage() 为 null，进第一个区域的那次存档就会走到这里
+      if (!this.writeWarned) {
+        this.writeWarned = true;
+        this.game.ui?.toast(STRINGS.save.writeFailed, 'system');
+      }
       return false;
     }
     this.game.events.emit('save', { slot });

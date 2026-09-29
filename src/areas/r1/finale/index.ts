@@ -18,8 +18,9 @@ import { CUTSCENES } from './cutscenes';
 import { SHOTS } from './shots';
 import { buildLogic, updateLogic } from './logic';
 import { clearRt, rt, sync, DESK_AIM } from './stage';
-import { WORKER_ON_LADDER, buildCredits, buildEpilogue, buildNanke } from './ending';
-import { MAO_POST } from './cutscenes';
+import { EPILOGUE_CAM, WORKER_ON_LADDER, buildCredits, buildEpilogue, buildNanke } from './ending';
+import { yawToRotY, yawTowards } from '../../../core/math';
+import { MAO_POST, stageShot } from './cutscenes';
 import type { EpilogueSet, CreditsStage } from './ending';
 
 /** 截图用：已经走到结局（r1.called_at_dawn）的状态进区域时，把尾声、片尾、南柯的布景直接摆好（正常流程里它们由过场的 run 步骤按需建）。 */
@@ -45,8 +46,8 @@ function stageForShots(): void {
   e.excavator.position.x = 3.5;
   e.worker.root.visible = true;
   e.worker.root.position.set(...WORKER_ON_LADDER);
-  e.worker.root.rotation.y = -Math.PI * 0.3;
-  e.worker.setPose('raise_arm', 0);
+  e.worker.root.rotation.y = yawToRotY(yawTowards(WORKER_ON_LADDER, EPILOGUE_CAM.pos));
+  e.worker.setPose('look_up', 0);
   const c: CreditsStage = buildCredits(ctx, ctx.game);
   r.sets.credits = c;
   c.show(4, 1, 0.6);
@@ -106,6 +107,7 @@ const finale = {
     if (!r) return;
     updateLogic(r, dt);
     sync(r, dt);
+    stageShot(r);
   },
   onExit() {
     clearRt();

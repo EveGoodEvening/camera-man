@@ -22,6 +22,10 @@ export const DLG_ID = {
   tudiIdle: 'dlg.r1.tudi_idle',
   tudiChou: 'dlg.r1.tudi_chou',
   tudiYin: 'dlg.r1.tudi_yin',
+  /** M4 第 2 轮：寅时看完带子 / 听完那句话 / 摆上画以后的土地（GDD §8.1“寅时”待同步） */
+  tudiYinTape: 'dlg.r1.tudi_yin_tape',
+  tudiYinVoice: 'dlg.r1.tudi_yin_voice',
+  tudiYinPlaced: 'dlg.r1.tudi_yin_placed',
   tudiBooth: 'dlg.r1.tudi_booth',
 } as const;
 
@@ -81,9 +85,12 @@ export const DIALOGUES: readonly DialogueDef[] = defineDialogues('r1', {
   [DLG_ID.tudiPhoto]: seq([[NPC.TUDI, TUDI.afterPhoto]], [E.tutorial(STRINGS.tutorial.rewind)]),
   [DLG_ID.tudiGoReplay]: seq([[NPC.TUDI, TUDI.goReplay]]),
   [DLG_ID.tudiMission]: missionDialogue(),
-  // 交代完差事、丑时以前：先把差事再说一遍（原文第三句），再给两个话题（M4：原来直接从选项开始，对话框里没有正文）
-  [DLG_ID.tudiIdle]: lineThenTopics(TUDI.mission[2]),
+  // 交代完差事、丑时以前：先把差事再说一遍，再给两个话题（M4：原来直接从选项开始，对话框里没有正文）
+  [DLG_ID.tudiIdle]: lineThenTopics(TUDI.idle),
   [DLG_ID.tudiChou]: lineThenTopics(TUDI.chou),
   [DLG_ID.tudiYin]: lineThenTopics(TUDI.yin, { remind: true }),
+  [DLG_ID.tudiYinTape]: lineThenTopics(TUDI.yinTape, { remind: true }),
+  [DLG_ID.tudiYinVoice]: lineThenTopics(TUDI.yinVoice, { remind: true }),
+  [DLG_ID.tudiYinPlaced]: lineThenTopics(TUDI.yinPlaced, { remind: true }),
   [DLG_ID.tudiBooth]: lineThenTopics(TUDI.afterFace, { remind: true, topics: false }),
 });

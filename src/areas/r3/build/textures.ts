@@ -540,6 +540,29 @@ export function filmStrip(positive: boolean): Paint {
 
 // ==================================================================== 暗房守则（陆长明手书，贴在门背后）
 
+/** 不能出现在行首的标点（句读、后括号、后引号、省略号、破折号）。 */
+const NO_LINE_START = new Set([...'，。、；：？！）」』”’》…—']);
+/** 不能留在行末的标点（前括号、前引号）。 */
+const NO_LINE_END = new Set([...'（「『“‘《']);
+
+/**
+ * 按固定字数折行，带避头尾（M4 第 2 轮：按 15 字硬切时“……就瞎了。”的句号独占一行）：
+ * 下一行要以句读/后括号开头时，把这些字并到本行末尾（本行可以比 n 多出一两个字）；本行以前括号/前引号结尾时，把它挪到下一行。
+ */
+export function wrapKinsoku(text: string, n: number): string[] {
+  const chars = [...text];
+  const out: string[] = [];
+  let i = 0;
+  while (i < chars.length) {
+    let end = Math.min(i + n, chars.length);
+    while (end < chars.length && NO_LINE_START.has(chars[end]!)) end++;
+    while (end - i > 1 && end < chars.length && NO_LINE_END.has(chars[end - 1]!)) end--;
+    out.push(chars.slice(i, end).join(''));
+    i = end;
+  }
+  return out;
+}
+
 export function rulesSheet(hi: boolean): Paint {
   return (g, w, h) => {
     const r = rng(1990);
@@ -557,14 +580,16 @@ export function rulesSheet(hi: boolean): Paint {
     const size = w * 0.058;
     g.textBaseline = 'middle';
     drawHandLine(g, r, TEXT.rulesTitle, w * 0.33, h * 0.07, size * 1.25, ink, { pressure: 1 });
-    const lines: string[] = [];
     g.font = `${Math.round(size)}px ${HAND_FONT_STACK}`;
+    // 手写折行：每行约 15 字（避头尾，见 wrapKinsoku）；条与条之间空小半行
+    let y = h * 0.15;
     for (const t of TEXT.rulesLines) {
-      // 手写折行：每行约 15 字
-      const chars = [...t];
-      for (let i = 0; i < chars.length; i += 15) lines.push(chars.slice(i, i + 15).join(''));
+      for (const ln of wrapKinsoku(t, 15)) {
+        drawHandLine(g, r, ln, w * 0.05, y, size, ink, { smear: 0.2 });
+        y += h * 0.052;
+      }
+      y += h * 0.022;
     }
-    lines.forEach((ln, i) => drawHandLine(g, r, ln, w * 0.06, h * (0.15 + i * 0.052), size, ink, { smear: 0.2 }));
     // 另一张纸条（字更抖）
     g.save();
     g.translate(w * 0.08, h * 0.8);
@@ -573,9 +598,7 @@ export function rulesSheet(hi: boolean): Paint {
     g.fillRect(0, 0, w * 0.84, h * 0.19);
     g.fillStyle = 'rgba(210,200,160,0.7)';
     g.fillRect(w * 0.34, -h * 0.012, w * 0.16, h * 0.03);
-    const note = [...TEXT.rulesNote];
-    const noteLines: string[] = [];
-    for (let i = 0; i < note.length; i += 17) noteLines.push(note.slice(i, i + 17).join(''));
+    const noteLines = wrapKinsoku(TEXT.rulesNote, 17);
     noteLines.forEach((ln, i) => drawHandLine(g, r, ln, w * 0.03, h * (0.035 + i * 0.04), size * 0.78, '#2a2030', { pressure: 0.85, smear: 0.35 }));
     g.restore();
     if (!hi) {

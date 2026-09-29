@@ -578,7 +578,11 @@ export interface BoardSign { face: THREE.Mesh; setOn(on: boolean): void }
  */
 export function boardSign(
   ctx: AreaContext, st: Statics,
-  o: { text: string; w: number; h: number; at: V3; yaw: number; style: 'plaque' | 'painted' | 'lightbox'; color: string; bg: string; glow?: number; on?: boolean; depth?: number; frame?: THREE.Material },
+  o: {
+    text: string; w: number; h: number; at: V3; yaw: number; style: 'plaque' | 'painted' | 'lightbox'; color: string; bg: string; glow?: number; on?: boolean; depth?: number; frame?: THREE.Material;
+    /** painted/plaque：反光膜路牌这类夜里要读得出的牌子，字面自发光（emissiveMap = 字面贴图）的强度；可读的牌子 0.5–0.9（AGENTS.md Lessons） */
+    selfLit?: number;
+  },
 ): BoardSign {
   const pw = Math.min(512, Math.max(128, Math.round((o.w * 420) / 32) * 32));
   const ph = Math.max(32, Math.round((pw * o.h) / o.w));
@@ -617,6 +621,10 @@ export function boardSign(
     faceMat.emissive.set('#ffffff');
     faceMat.emissiveMap = tex;
     faceMat.userData.tempC = 40;
+  } else if (o.selfLit) {
+    faceMat.emissive.set('#ffffff');
+    faceMat.emissiveMap = tex;
+    faceMat.emissiveIntensity = o.selfLit;
   }
   const depth = o.depth ?? (o.style === 'lightbox' ? 0.16 : 0.05);
   const face = new THREE.Mesh(new THREE.PlaneGeometry(o.w, o.h), faceMat);

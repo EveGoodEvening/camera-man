@@ -8,18 +8,63 @@
 
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { runRegion } from '../lib/harness.mjs';
+import { freshState, runRegion } from '../lib/harness.mjs';
 import { PRESETS } from '../lib/presets.mjs';
-import { pickSteps, tryFeedback } from '../walkthrough.mjs';
+import { confirmWant, pickSteps, tryFeedback } from '../walkthrough.mjs';
 
 export const AREA = 'r1';
 export const PRESET_NAMES = ['ants', 'yin', 'yin_nanke'];
 for (const p of PRESET_NAMES) if (!(p in PRESETS)) throw new Error(`presets.mjs 没有预置 ${p}`);
 
+/** 支架确认正文里的南柯进度（M4 第 2 轮；GDD §5 P14 第 3 步、§11 步骤 56，判据在 walkthrough.mjs 的 confirmWant）。 */
+function assertConfirm(g, text, n) {
+  g.assert(typeof text === 'string' && text.includes(confirmWant(n)), `确认对话应显示南柯进度“${confirmWant(n)}”：${JSON.stringify(text)}`);
+  if (n === 0) g.assert(!text.includes('蚂蚁') && !text.includes('/6'), `一张没交过的玩家不该在确认对话里看到蚁穴：${JSON.stringify(text)}`);
+}
+
+/** 片名大字卡的文字（M4 第 2 轮：南柯的题名改成大字卡；DebugState 没有片名字段，页面里挂一个 MutationObserver 记下来）。 */
+async function watchTitles(g) {
+  await g.page.evaluate(() => {
+    const w = window;
+    w.__titleLog = w.__titleLog ?? [];
+    if (w.__titleObs) return;
+    const el = document.querySelector('.cm-fade-title-main');
+    if (!el) return;
+    w.__titleObs = new MutationObserver(() => w.__titleLog.push(el.textContent));
+    w.__titleObs.observe(el, { childList: true, subtree: true, characterData: true });
+  });
+}
+async function titlesSeen(g) {
+  return g.page.evaluate(() => window.__titleLog ?? []);
+}
+
+/**
+ * §11 步骤 58 的本区版本（M4 第 2 轮改了南柯题名）：walkthrough.mjs 的步骤 58 两种题名都认，这里另断言主结局片名不带书名号、南柯是大字卡。
+ * （步骤 56 的新确认正文已由第 2 轮整合同步进 walkthrough.mjs。）
+ */
+const STEP_OVERRIDES = {
+  58: {
+    run: async g => {
+      g.nanke = (await g.refresh()).flags['r1.nanke'] === true;
+      if (g.route === 'main' || g.route === 'full') g.assert(g.nanke === (g.route === 'full'), `路线 ${g.route} 与 r1.nanke=${g.nanke} 不符`);
+      await watchTitles(g);
+      const r = await g.call('dlg', { maxReal: 300_000 });
+      const titles = await titlesSeen(g);
+      g.assert(titles.some(t => t.includes('天亮了，叫我')) && !titles.some(t => t.includes('《')), `主结局片名卡应是“天亮了，叫我”（不带书名号）：${JSON.stringify(titles)}`);
+      if (!g.nanke) return;
+      g.assert(r.at === 'await', `南柯段落应停在变焦等待：${JSON.stringify(r)}`);
+      await g.call('zoom', 6);
+      await g.refresh();
+      g.assert((await titlesSeen(g)).some(t => t.includes('南柯')), `南柯的题名应是大字卡“南柯”：${JSON.stringify(await titlesSeen(g))}`);
+      await g.call('dlg', { maxReal: 300_000 });
+    },
+  },
+};
+
 export const PHASES = [
   { label: 'ants · 步骤 12', preset: 'ants', steps: pickSteps(12, 12) },
-  { label: 'yin_nanke · 步骤 46–58（南柯）', preset: 'yin_nanke', steps: pickSteps(46, 58), route: 'full' },
-  { label: 'yin · 步骤 47–58（主线）', preset: 'yin', steps: pickSteps(47, 58), route: 'main' },
+  { label: 'yin_nanke · 步骤 46–58（南柯）', preset: 'yin_nanke', steps: pickSteps(46, 58, STEP_OVERRIDES), route: 'full' },
+  { label: 'yin · 步骤 47–58（主线）', preset: 'yin', steps: pickSteps(47, 58, STEP_OVERRIDES), route: 'main' },
 ];
 
 /** 读档复验：两个中间步骤之后（52 之后是 ARCH §15.5 的检查点之一）。 */
@@ -366,6 +411,54 @@ export const CASES = [
       g.assert(mine.length === 0, `lint：${JSON.stringify(mine)}`);
     },
   },
+  {
+    // M4 第 2 轮：合影判定只看身子离粉笔叉 ≤ 1.5m，老周站的地方离叉 0.9m——他挡人，身子走不进他的魂影里
+    puzzle: 'P14', name: '门口的老周挡人：身子走不进他身上', preset: 'yin',
+    extra: {
+      flags: {
+        'r1.tape_in_vcr': true, 'r1.tape_watched': true, 'r1.heard_voice': true, 'r1.portrait_placed': true, 'r1.portrait_complete': true,
+        'r1.zhou_visible': true, 'r1.zhou_fed': true,
+      },
+      items: [{ id: 'it.portrait', used: true }, { id: 'it.wonton', used: true }], photos: ['ph.tape_face', 'ph.zhou_tunnel'],
+    },
+    run: async g => {
+      await g.call('goto', 'r1', -3.2, 21.3);
+      await g.call.try('walk', -1.9, 21.51);
+      const s = await g.refresh();
+      const d = Math.hypot(s.pos[0] + 1.9, s.pos[2] - 21.51);
+      g.assert(d >= 0.45, `身子不该走进门口的老周身上（离他 ${d.toFixed(2)}m）：${JSON.stringify(s.pos)}`);
+    },
+  },
+  {
+    // M4 第 2 轮：收了 1–5 张时，确认正文说“收了 n 张，还差 6−n 张”（不再是“n/6”）
+    puzzle: 'P14', name: '支架确认：蚁穴收了 2 张 → “还差 4 张”', preset: 'yin',
+    extra: {
+      flags: {
+        'r1.tape_in_vcr': true, 'r1.tape_watched': true, 'r1.heard_voice': true, 'r1.portrait_placed': true, 'r1.portrait_complete': true,
+        'r1.zhou_visible': true, 'r1.zhou_fed': true, 'r1.ant_old_1': true, 'r1.ant_old_2': true,
+      },
+      items: [{ id: 'it.portrait', used: true }, { id: 'it.wonton', used: true }], photos: ['ph.tape_face', 'ph.zhou_tunnel', 'ph.old_1', 'ph.old_2'],
+    },
+    run: async g => {
+      await g.call('goto', 'r1', -3.8, 20.6);
+      await g.call('interact', 'r1.bracket');
+      const s = await g.refresh();
+      assertConfirm(g, s.dialogue && s.dialogue.text, 2);
+      await g.call('choose', 2);
+      await g.call('dlg');
+    },
+  },
+  {
+    // M4 第 2 轮：摆上遗像给 1.8 秒的桌面特写（cs.r1.fin_place），播完回到 explore；陆师傅那句字幕照旧
+    puzzle: 'P13', name: '摆上遗像：桌面特写过场，回到 explore', preset: 'yin',
+    extra: { flags: { 'r1.tape_in_vcr': true, 'r1.tape_watched': true, 'r1.heard_voice': true }, photos: ['ph.tape_face'] },
+    run: async g => {
+      await g.call('goto', 'r1', -6.5, 20.9);
+      await tryFeedback(g, '摆上吧。还差一张脸。', 'use', 'r1.desk', 'it.portrait');
+      g.expect.mode('mode.explore');
+      g.expect.flags('r1.portrait_placed');
+    },
+  },
   // ———————————————— H 南柯
   {
     puzzle: 'H', name: '蚁穴：非旧照 / 物品 / 重复', preset: 'ants',
@@ -382,6 +475,63 @@ export const CASES = [
     },
   },
 ];
+
+// M4 第 2 轮：门口倒带时老周在不在画里（GDD §11 步骤 50 的站位、从院里走来的站位；调试 API 的 replay() 先转向残影点，
+// 与真人对着雪花按 R 一样，之后引擎按片段 focus 转向）。页面里用 three 的 __THREE_DEVTOOLS__ 钩子拿场景，
+// 把 ghost.zhou_2023 的头投影到取景器相机上，要求落在 4:3 画框内（16:9 视口的 |x| ≤ 0.75）。
+// 要在页面加载前挂钩子：本例重载页面，所以放在最后。
+CASES.push({
+  puzzle: 'P12', name: '门口倒带：“伙计……替我看着点。”响起时老周在取景器画框里（两个站位）', preset: 'yin',
+  extra: { flags: { 'r1.tape_in_vcr': true, 'r1.tape_watched': true }, photos: ['ph.tape_face'] },
+  run: async g => {
+    await g.page.addInitScript(() => {
+      const et = new EventTarget();
+      window.__THREE_DEVTOOLS__ = et;
+      window.__scenes = [];
+      et.addEventListener('observe', e => {
+        const d = e.detail;
+        if (d && d.isScene) window.__scenes.push(d);
+      });
+    });
+    await g.goto('debug=1&test=1&lockstep=1&quality=low');
+    await freshState(g, 'yin', { flags: { 'r1.tape_in_vcr': true, 'r1.tape_watched': true }, photos: ['ph.tape_face'] });
+    for (const [x, z] of [[-3.6, 20.8], [-2.6, 21.0]]) {
+      await g.call('goto', 'r1', x, z);
+      await g.call('vf', true);
+      await g.call('replay', 'rp.r1_booth', 'seg.booth_2023');
+      await g.call('replaySeek', 11);
+      await g.call('wait', 0.6);
+      await g.page.evaluate(() => {
+        const sc = window.__scenes.find(s => s.getObjectByName('ghost.zhou_2023'));
+        if (!sc || sc.__finHook) return;
+        const orig = sc.onBeforeRender;
+        sc.onBeforeRender = function (r, s, cam, rt) {
+          if (cam && (cam.name === 'cam.fp' || cam.name === 'cam.tp')) window.__mainCam = cam;
+          return orig.call(this, r, s, cam, rt);
+        };
+        sc.__finHook = true;
+      });
+      await g.call('frame', 2);
+      const p = await g.page.evaluate(() => {
+        const sc = window.__scenes.find(s => s.getObjectByName('ghost.zhou_2023'));
+        const cam = window.__mainCam;
+        if (!sc || !cam) return null;
+        const ghost = sc.getObjectByName('ghost.zhou_2023');
+        const head = ghost.getObjectByName('head') ?? ghost;
+        const v = head.getWorldPosition(new head.position.constructor());
+        const w = { x: v.x, y: v.y, z: v.z };
+        v.project(cam);
+        return { ndc: [v.x, v.y, v.z], world: w, cam: cam.name };
+      });
+      g.assert(p !== null, '取不到场景或取景器相机');
+      const [nx, ny, nz] = p.ndc;
+      g.assert(nz < 1 && Math.abs(nx) <= 0.75 && Math.abs(ny) <= 1, `站在 (${x},${z}) 倒带，t≈11.6s 老周的头应在取景器 4:3 画框内：${JSON.stringify(p)}`);
+      await g.call('replaySeek', 24);
+      await g.call('replayExit');
+      await g.call('vf', false);
+    }
+  },
+});
 
 export async function run() {
   return runRegion({ name: 'r1_finale', phases: PHASES, cases: CASES, reloadAt: RELOAD_AT });

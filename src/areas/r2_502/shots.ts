@@ -19,8 +19,7 @@ export const SHOTS: readonly ShotDef[] = [
   {
     id: 'shot.r2_502.entry', label: '子时·进门：空客厅，月光在地上铺出窗格，照出家具搬走后的灰印；停在 2019 年 12 月的挂历，厨房门里灶前的王奶奶',
     preset: { flags: IN_502 }, view: { player: [0.6, -3.3], yaw: 125, pitch: -13, mode: 'vf', zoom: 1 }, keys: ['r2.calendar'],
-    // M4 整合：亮点只有月亮、窗外灯火与旋涡的随机雪花，> 0.8 的像素在 0.5% 上下跳（0.49%/0.5x%），阈值放到 0.7
-    highlight: 0.7,
+    // （M4 整合曾因“> 0.8 的像素在 0.5% 上下跳”放到 highlight 0.7；第 2 轮的亮核判据（模糊后 P99.5）实测 0.77，撤掉）
   },
   {
     id: 'shot.r2_502.kitchen_vf', label: '子时·取景器：灶前的王奶奶、灶君纸像描金、三块新瓷砖',

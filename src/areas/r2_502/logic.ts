@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import type { AreaContext } from '../../core/area';
 import type { GameEvents } from '../../core/events';
-import { F, IT, NPC, OBJ, SEG, SPK } from '../../data/ids';
+import { DOC, F, IT, NPC, OBJ, SEG, SPK } from '../../data/ids';
 import type { ThingId } from '../../data/ids';
 import { LIGHT_SCALE, TEMP_C } from '../../data/render';
 import { PALETTE } from '../../data/palette';
@@ -102,7 +102,9 @@ export function buildLogic502(ctx: AreaContext, apt: Apt): R502Runtime {
   // 不压在两张脸上——取景器里要看的是眼珠往哪儿瞟
   ctx.interactable({
     id: OBJ.R2_ZAOJUN, label: TEXT.label.zaojun, at: [K.zaojun[0], K.zaojun[1] - 0.275, K.zaojun[2]], hit: apt.zaojun,
-    view: 'viewfinder', priority: 2,
+    // M4 第 2 轮：不参与就近聚焦——只在准星直接对着纸像时选中。原来在灶台跟前低头找瓷砖时（射线够不到砖），就近规则按 priority
+    // 把灶君选上，E 弹出灶君对话，把“抠开左下那块”这一步打断
+    view: 'viewfinder', priority: 2, proximityFocus: false,
     onInteract: api => api.dialogue(api.state.flag(F.R2_WANG_DONE) ? DLG_502.ZAOJUN_DONE : DLG_502.ZAOJUN_FIRST),
   });
 
@@ -119,16 +121,20 @@ export function buildLogic502(ctx: AreaContext, apt: Apt): R502Runtime {
     api.give(IT.LETTER);
     api.give(IT.TRAIN_TICKET);
     api.give(IT.GLASSES);
-    // 说清楚拿到了什么（信可以在物品栏里读，读信过场里也会念到要紧的两句）
+    // M4 第 2 轮：拾取即在阅读器里翻开建国的信（与拾取巡夜本自动翻开同一个体验）——信里门神、电梯、“写包”几处回收 P4、捐款榜与
+    // 七月半，原来只有主动打开物品栏的人才读得到。openDoc 阻塞到合上；合上后再说一句盒子里还有什么
+    await api.openDoc(DOC.LETTER_JIANGUO);
     api.feedback(TEXT.fb.tinFound);
   };
-  ctx.interactable({ id: OBJ.R2_TILE_LEFT_LOW, label: TEXT.label.tile, at: [K.tileLeftLow[0] - 0.02, K.tileLeftLow[1], K.tileLeftLow[2]], hit: apt.tiles.left, onInteract: tileRun('left') });
-  ctx.interactable({ id: OBJ.R2_TILE_RIGHT_LOW, label: TEXT.label.tile, at: [K.tileRightLow[0] - 0.02, K.tileRightLow[1], K.tileRightLow[2]], hit: apt.tiles.right, onInteract: tileRun('right') });
-  ctx.interactable({ id: OBJ.R2_TILE_TOP, label: TEXT.label.tile, at: [K.tileTop[0] + 0.02, K.tileTop[1], K.tileTop[2]], hit: apt.tiles.top, onInteract: tileRun('top') });
+  // priority 1（高于灶台）：射线先穿过低处两块砖的拾取代理盒、再打到灶台面时选砖；就近聚焦时砖也排在灶台前面
+  ctx.interactable({ id: OBJ.R2_TILE_LEFT_LOW, label: TEXT.label.tile, at: [K.tileLeftLow[0] - 0.02, K.tileLeftLow[1], K.tileLeftLow[2]], hit: apt.tiles.left, priority: 1, onInteract: tileRun('left') });
+  ctx.interactable({ id: OBJ.R2_TILE_RIGHT_LOW, label: TEXT.label.tile, at: [K.tileRightLow[0] - 0.02, K.tileRightLow[1], K.tileRightLow[2]], hit: apt.tiles.right, priority: 1, onInteract: tileRun('right') });
+  ctx.interactable({ id: OBJ.R2_TILE_TOP, label: TEXT.label.tile, at: [K.tileTop[0] + 0.02, K.tileTop[1], K.tileTop[2]], hit: apt.tiles.top, priority: 1, onInteract: tileRun('top') });
 
   // —— 灶台、挂历
   ctx.interactable({
-    id: OBJ.R2_STOVE, label: TEXT.label.stove, at: [6.85, 0.95, (K.counter.z0 + K.counter.z1) / 2 + 0.35], hit: apt.counter,
+    // 锚点在煤气灶上（z = 灶台中线，两块低处瓷砖的拾取代理盒之间；M4 第 2 轮，原来偏南 0.35m 贴着右下砖的代理盒）
+    id: OBJ.R2_STOVE, label: TEXT.label.stove, at: [6.95, 0.95, (K.counter.z0 + K.counter.z1) / 2], hit: apt.counter,
     onInteract: api => api.feedback(fireLit(api.state) ? TEXT.fb.stoveLit : TEXT.fb.stoveCold),
   });
   ctx.interactable({
@@ -212,6 +218,13 @@ export function buildLogic502(ctx: AreaContext, apt: Apt): R502Runtime {
         const [cx, cy, cz] = letterCamAt(readAt.x, readAt.z);
         readEye.lerp(readCam.set(cx, cy, cz), 0.35);
         apt.letter.lookAt(readEye);
+      }
+      // 临别（M4 第 2 轮）：她转过身面朝伙计（过场在黑场里写 face_player，这里直接摆朝向）
+      if (s.temp('face_player') === true && root) {
+        const p = g.player.position;
+        root.getWorldPosition(readAt);
+        const yaw = (Math.atan2(p.x - readAt.x, -(p.z - readAt.z)) * 180) / Math.PI;
+        root.rotation.y = yawToRotY(yaw) - (root.parent?.rotation.y ?? 0);
       }
       // 说话的纸像微微鼓动
       const talking = g.modes.stack.includes('mode.dialogue') && (ZAO.who === SPK.ZAOWANG || ZAO.who === SPK.ZAONAINAI);

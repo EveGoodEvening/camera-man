@@ -198,7 +198,11 @@ export class Game {
     // 4. 共享资源：玩家模型常驻场景（进第一个区域前先藏起来，标题菜单后面不留一个孤零零的人）
     this.scene.add(this.playerModel.root);
     this.playerModel.root.visible = false;
-    this.pipeline.onResize = () => this.ui.setFrameRect(this.cameras.frameRect());
+    this.pipeline.onResize = () => {
+      this.ui.setFrameRect(this.cameras.frameRect());
+      // M4 第 2 轮：暂停页不再逐帧渲染，窗口尺寸变了要补画一帧
+      this.forceRender = true;
+    };
     this.pipeline.setQuality(this.settings.quality);
     this.pipeline.setDynamicResolution(!this.url.test);
     this.watchResize();
@@ -281,9 +285,20 @@ export class Game {
       // 11. 渲染：dt 取自上次渲染以来的游戏时间（advance 期间不渲染，最后一帧一次性交给后期的淡入淡出）
       this.pendingRenderDt += dt;
       if (render) {
-        this.pipeline.render(this.pendingRenderDt);
-        this.pendingRenderDt = 0;
-        this.checkLights();
+        // M4 第 2 轮：暂停页开着、进暂停后已经画过 PAUSE_RENDER_FRAMES 帧就不再画（世界冻结，画面不变；preserveDrawingBuffer 为 false，
+        // 不提交新帧时画布保留最后一帧）——集显笔记本挂在暂停页不再满负荷。窗口尺寸变了、上下文刚恢复时补画（forceRender）。
+        const paused = this.modes.top === 'mode.pause';
+        this.pausedFrames = paused ? this.pausedFrames + 1 : 0;
+        if (paused && this.pausedFrames > PAUSE_RENDER_FRAMES && !this.forceRender) {
+          this.pipeline.holdDynamicResolution(500);
+          // 恢复后的第一帧只补一小段后期动画时间（原来暂停期间每帧都在走）
+          this.pendingRenderDt = Math.min(this.pendingRenderDt, 0.1);
+        } else {
+          this.forceRender = false;
+          this.pipeline.render(this.pendingRenderDt);
+          this.pendingRenderDt = 0;
+          this.checkLights();
+        }
       }
       // 12–13
       this.save.flushIfSafe();
@@ -471,6 +486,12 @@ export class Game {
   private lostPlace: AreaPlaceSnapshot | null = null;
   /** 每开一局/回一次标题加一：toTitle 淡出期间开了新局时不再显示标题（M1d） */
   private runSeq = 0;
+  /** M4 第 2 轮：进暂停后已经渲染的帧数（超过 PAUSE_RENDER_FRAMES 就不再渲染）；forceRender = 下一帧无论如何都画 */
+  private pausedFrames = 0;
+  private forceRender = false;
+  /** M4 第 2 轮：WebGL 上下文丢失以来“页面可见”的真实毫秒数（null = 没丢失）；超过 15 秒换成“请刷新页面” */
+  private lostVisibleMs: number | null = null;
+  private lostLastAt = 0;
 
   /** 当前 step 的 dt（TriggerSystem.onStay 用）。 */
   frameDt(): number {
@@ -575,6 +596,10 @@ export class Game {
   private onFrame(timestamp: number): void {
     this.timer.update(timestamp);
     const real = Math.min(this.timer.getDelta(), 0.1);
+    // M4 第 2 轮：动态分辨率按 rAF 的时间戳（垂直同步时刻）采样帧间隔；原来用渲染结束后的 performance.now()，
+    // 间隔 = 16.7ms ± 相邻两帧工作量之差，60Hz 屏上降档后几乎永远升不回来（ARCH §13.2）
+    this.pipeline.frameStamp = timestamp;
+    if (this.lostVisibleMs !== null) this.tickContextLost();
     // M4：建区/加载中的长帧不算进动态分辨率（结束后再等 1 秒）
     if (this.areas?.building || this.areas?.isLoading()) this.pipeline.holdDynamicResolution(1000);
     try {
@@ -666,7 +691,10 @@ export class Game {
   }
 
   private onContextLost(): void {
-    this.ui.toast(STRINGS.boot.contextLost, 'system');
+    // M4 第 2 轮：常驻遮罩（原来是 4 秒就消失的系统反馈条）；15 秒（真实时间、只计页面可见的时间）还没恢复就请玩家刷新
+    this.ui.fade.setLostOverlay(STRINGS.boot.contextLost);
+    this.lostVisibleMs = 0;
+    this.lostLastAt = performance.now();
     // M4：趁旧的 GL 资源管理器还在，同步卸载当前区域（释放落在已丢失的上下文上，静默无害）；恢复后原地重进。
     // 结局期间（save.held）仍走原来的重进规则（reenterCurrentArea），这里只记下暂停
     if (this.areas.current && !this.save.held && !this.areas.building) {
@@ -680,7 +708,21 @@ export class Game {
     this.requestPause();
   }
 
+  /** 上下文丢失期间每个 rAF：累计页面可见的真实时间（单次间隔最多记 250ms），超过 15 秒换文案。 */
+  private tickContextLost(): void {
+    const now = performance.now();
+    const gap = Math.min(250, Math.max(0, now - this.lostLastAt));
+    this.lostLastAt = now;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    const before = this.lostVisibleMs ?? 0;
+    this.lostVisibleMs = before + gap;
+    if (before < CONTEXT_DEAD_MS && this.lostVisibleMs >= CONTEXT_DEAD_MS) this.ui.fade.setLostOverlay(STRINGS.boot.contextDead);
+  }
+
   private async onContextRestored(): Promise<void> {
+    this.lostVisibleMs = null;
+    this.ui.fade.setLostOverlay(null);
+    this.forceRender = true;
     // three 在 restored 时自己重建 GL 状态；RT 由各系统在重新进区域时重新申请，PMREM 缓存要清掉
     resetEnvironmentCache();
     const lost = this.lostPlace;
@@ -692,6 +734,8 @@ export class Game {
     await this.areas.enter(lost.area, lost.spawn, { reason: 'restored', restore: lost });
     // 丢失前压了暂停（或本来就该暂停）：恢复后停在暂停页，玩家确认再继续
     if (this.areas.current && this.modes.top !== 'mode.pause') this.modes.push('mode.pause');
+    this.forceRender = true;
+    this.pausedFrames = 0;
   }
 
   private onVisibility(): void {
@@ -729,6 +773,8 @@ export class Game {
 
   private onSetting(key: keyof Settings): void {
     const s = this.settings;
+    // M4 第 2 轮：暂停页（设置页）里改了颗粒/闪光等设置，补画一帧让画面跟上
+    this.forceRender = true;
     if (key === 'grain' || key === 'reduceFlash') this.pipeline.post.applySettings({ grain: s.grain, reduceFlash: s.reduceFlash });
     else if (key === 'volume') this.audio.setVolume(s.volume);
     // quality：applySetting 自己调用 requestReenter('quality')（M1d：由 step 末尾在安全时重进），这里不重复
@@ -746,6 +792,8 @@ export class Game {
     this.sys.hints.resetProgress();
     this.sys.viewfinder.resetOptics();
     this.resetPlayerModel();
+    // M4 第 2 轮：上一局还在排队的教学条/新页提示不带进这一局
+    this.ui.resetHeld();
   }
 
   private resetPlayerModel(): void {
@@ -790,6 +838,11 @@ export class Game {
     watchDpr();
   }
 }
+
+/** M4 第 2 轮：进暂停后再渲染这么多帧（让暂停那一刻的画面、淡入的暂停页落定），之后停止渲染直到离开暂停。 */
+const PAUSE_RENDER_FRAMES = 2;
+/** M4 第 2 轮：WebGL 上下文丢失超过这么久（真实毫秒、页面可见）还没恢复 → “画面无法恢复，请刷新页面”。 */
+const CONTEXT_DEAD_MS = 15_000;
 
 function macrotask(): Promise<void> {
   // 让出一次宏任务（基础设施：给 rAF、网络、Playwright 的 evaluate 留机会；不属于玩法计时）

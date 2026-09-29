@@ -1,8 +1,9 @@
 // owner: WP7
 // 截图与亮度验收（ARCH §12.4、§12.5）：对每个 AreaDef.shots 截图到 test-artifacts/shots/<shotId>.png，记录 perf() 到
 // test-artifacts/shots/perf.json（M3：带 --area 时写 perf.<区域,…>.json，几个区域并行跑互不覆盖）。
-// 通过标准：无报错；每张图（UI 隐藏时）平均亮度在 [0.05, 0.35]（ShotDef.brightness 可覆盖）、亮度 > 0.8 的像素 ≥ 0.5%
-// （ShotDef.highlight 可改阈值或 false 跳过，M3）；
+// 通过标准：无报错；每张图（UI 隐藏时）平均亮度在 [0.05, 0.35]（ShotDef.brightness 可覆盖）、有一块成片的亮核
+// （M4 第 2 轮：3×3 模糊后亮度的第 99.5 百分位 ≥ highlight − 0.08，缺省 0.72——等价于原来“亮度 > 0.8 的像素 ≥ 0.5%”，但不再被
+// 雨丝、颗粒、雪花这些单像素噪点左右；ShotDef.highlight 仍是原来的阈值语义，可改或 false 跳过，M3）；
 // ShotDef.keys 的锚点投影处 5×5 像素平均亮度 > 0.04；perf() 满足 §13.3 的 BUDGET。
 // --area 指定的区域（或 --strict 时的全部区域）另要求至少 8 个机位（dev 除外）。
 //
@@ -33,6 +34,8 @@ function args() {
 const ALL_AREAS = ['dev', 'r1', 'r2', 'r2_502', 'r3', 'r4'];
 const DEFAULT_RANGE = [0.05, 0.35];
 const DEFAULT_HIGHLIGHT = 0.8;
+/** M4 第 2 轮：亮核判据 = 模糊后第 99.5 百分位 ≥ highlight − CORE_MARGIN（模糊把亮核边缘拉低了一点）。 */
+const CORE_MARGIN = 0.08;
 const MIN_SHOTS = 8;
 const SHOT_TIMEOUT = Number(process.env.CAMERA_SHOT_TIMEOUT ?? 180_000);
 const CALL_TIMEOUT = Number(process.env.CAMERA_CALL_TIMEOUT ?? 400_000);
@@ -85,7 +88,8 @@ async function main() {
         const range = s.brightness ?? DEFAULT_RANGE;
         const issues = [];
         if (st.mean < range[0] || st.mean > range[1]) issues.push(`平均亮度 ${st.mean.toFixed(3)} 不在 [${range[0]}, ${range[1]}]`);
-        if (hi !== false && st.brightFrac < 0.005) issues.push(`亮度 > ${hi} 的像素只有 ${(st.brightFrac * 100).toFixed(2)}%（< 0.5%，灯与霓虹没亮？）`);
+        const coreMin = (hi === false ? DEFAULT_HIGHLIGHT : hi) - CORE_MARGIN;
+        if (hi !== false && st.coreP995 < coreMin) issues.push(`亮核不足：3×3 模糊后亮度第 99.5 百分位 ${st.coreP995.toFixed(3)} < ${coreMin.toFixed(2)}（灯与霓虹没亮、没入画？）`);
         for (const k of r.result.keys) {
           if (k.x < 0 || k.y < 0 || k.x >= img.width || k.y >= img.height) {
             issues.push(`关键对象 ${k.id} 不在画面里（${k.x}, ${k.y}）`);
@@ -108,7 +112,7 @@ async function main() {
           issues.push(`perf() → ${pf.reason}`);
         }
         for (const e of h.errors) issues.push(`页面错误 [${e.kind}] ${e.text.split('\n')[0]}`);
-        const line = `${s.id}（${s.label}）mean=${st.mean.toFixed(3)} bright=${(st.brightFrac * 100).toFixed(2)}%${pf.ok ? ` calls=${pf.result.calls}/${pf.result.callsMain} tris=${pf.result.tris} lights=${pf.result.lights} canvas=${pf.result.canvasMB}MB` : ''}`;
+        const line = `${s.id}（${s.label}）mean=${st.mean.toFixed(3)} core=${st.coreP995.toFixed(3)} bright=${(st.brightFrac * 100).toFixed(2)}%${pf.ok ? ` calls=${pf.result.calls}/${pf.result.callsMain} tris=${pf.result.tris} lights=${pf.result.lights} canvas=${pf.result.canvasMB}MB` : ''}`;
         if (issues.length) {
           problems.push(`${s.id}：${issues.join('；')}`);
           console.error(`  FAIL  ${line}\n        ${issues.join('\n        ')}`);

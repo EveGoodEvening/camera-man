@@ -4,7 +4,7 @@
 // 自愈：栈顶这层 mode.dialogue 没有对话认领（对话结束时它不在栈顶、没能弹出）时，update 里把它弹掉。
 
 import type { ModeId } from '../../core/types';
-import { fail } from '../../core/types';
+import { fail, ok } from '../../core/types';
 import type { Action, ActionResult } from '../../core/actions';
 import type { ModeCamera, ModeHandler, ModeMove } from '../../core/modes';
 import type { PointerPolicy } from '../../core/input';
@@ -44,6 +44,10 @@ export class DialogueMode implements ModeHandler {
         return d.choose(a.n);
       case 'pick':
         return d.choose(a.index + 1);
+      case 'back':
+        // M4 第 2 轮：Esc = 暂停菜单（requestPause 自己处理“没有区域”与“过渡期间推迟”）；对话不取消
+        this.game.requestPause();
+        return ok();
       default:
         return fail('mode_disallows');
     }

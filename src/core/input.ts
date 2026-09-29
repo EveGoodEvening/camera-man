@@ -8,6 +8,7 @@
 import type { Game } from './game';
 import type { Action } from './actions';
 import { KEYMAP, keymapButtons } from './actions';
+import { STRINGS } from '../data/strings';
 
 export type Button =
   | 'KeyW' | 'KeyA' | 'KeyS' | 'KeyD' | 'ShiftLeft' | 'KeyE' | 'KeyQ' | 'KeyR' | 'KeyF' | 'KeyZ' | 'KeyC'
@@ -55,6 +56,10 @@ const ESC_AFTER_UNLOCK_MS = 250;
 const LOCK_SETTLE_MS = 80;
 /** 单个 mousemove 超过这么多像素视为尖峰丢弃（正常甩鼠标一帧很少超过 200px）。 */
 const MOVE_SPIKE_PX = 400;
+/** M4 第 2 轮：从没锁上过又连续被拒这么多次 → 降级为拖拽转视角。 */
+const LOCK_FAIL_FALLBACK = 2;
+/** M4 第 2 轮：键盘自动重复只放行这些键（只通知 onButton 监听者：文档/巡夜本翻页、设置页滑块），其余一律丢弃。 */
+const REPEATABLE: ReadonlySet<Button> = new Set<Button>(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown']);
 
 const INTERACTIVE = 'button, input, textarea, select, a, [contenteditable=""], [contenteditable="true"], [data-ui-interactive]';
 
@@ -93,6 +98,9 @@ export class InputManager {
   private lockFailedAt = Number.NEGATIVE_INFINITY;
   /** M4：冷却期内点击排的一次重试 */
   private lockRetry: number | null = null;
+  /** M4 第 2 轮：连续被拒的次数（锁上一次就清零）与本页面是否锁上过 */
+  private lockFails = 0;
+  private everLocked = false;
   /** 当前按住的按钮里有没有 b（M4：按住模式的取景器在盖过它的模式关掉后检查右键是否还按着） */
   isHeld(b: Button): boolean {
     return this.held.has(b);
@@ -114,11 +122,16 @@ export class InputManager {
   get pointerLocked(): boolean {
     return this.target !== null && typeof document !== 'undefined' && document.pointerLockElement === this.target;
   }
-  /** 浏览器支持且不是 ?test=1/?nolock=1 */
+  /** 浏览器支持且不是 ?test=1/?nolock=1；M4 第 2 轮：指针锁定一直被拒（iframe 没有 allow="pointer-lock"、浏览器策略）时降级为拖拽转视角 */
   get lockAvailable(): boolean {
-    if (this.game.url.test || this.game.url.nolock) return false;
+    if (this.game.url.test || this.game.url.nolock || this.dragFallback) return false;
     return typeof Element !== 'undefined' && 'requestPointerLock' in Element.prototype;
   }
+  /**
+   * M4 第 2 轮（WP1 内部）：本页面从没锁上过、又连续 LOCK_FAIL_FALLBACK 次被拒 → true，此后走“按住左键拖拽”（与 ?nolock=1 同一路径），
+   * 收起“点击继续”（ARCH §4.6）。
+   */
+  dragFallback = false;
   /** 当前帧 WASD 轴 */
   get move(): MoveInput {
     if (this.override) return this.override;
@@ -280,8 +293,24 @@ export class InputManager {
       if (!this.held.has(b)) return;
       this.held.delete(b);
     }
-    for (const fn of this.listeners) fn(b, down);
+    // M4 第 2 轮：菜单页（标题、暂停、设置）开着时，按下的键由 UI 的监听者（菜单）消费，不再进队列翻译成游戏动作——
+    // 否则在暂停页按 Enter 选“继续”，同一下 Enter 在下一帧按“当时的”栈顶（对话、密码锁、挑选器）再翻译一次（跳台词、多确认一位）；
+    // 标题页上的 Tab/J 也不会把看不见的相册、巡夜本压进栈。必须在通知监听者**之前**读：监听者会同步关掉暂停页。
+    // Esc 照旧入队（暂停流程里设置页的返回、暂停页的“继续”靠 PauseMode 的 back）；松开事件照常入队（无害）。
+    const menuOpen = down && b !== 'Escape' && this.menuPage() !== 'none';
+    this.notify(b, down);
+    if (menuOpen) return;
     if (!this.suspended || this.pauseOnTop()) this.queue.push({ b, down });
+  }
+
+  private notify(b: Button, down: boolean): void {
+    for (const fn of this.listeners) fn(b, down);
+  }
+
+  /** 当前菜单页（node 侧自测的假 Game 没有 UI：当作没有菜单）。 */
+  private menuPage(): string {
+    const menus = (this.game.ui as { menus?: { currentPage(): string } } | undefined)?.menus;
+    return menus ? menus.currentPage() : 'none';
   }
 
   private pauseOnTop(): boolean {
@@ -306,7 +335,11 @@ export class InputManager {
     if (!b) return;
     // 防止 Tab 移走焦点、Space/Enter 触发 DOM 按钮、方向键/空格滚动页面（ARCH §4.6）
     if (this.mapped.has(b)) e.preventDefault();
-    if (e.repeat) return;
+    if (e.repeat) {
+      // M4 第 2 轮：按住方向键/PageUp/PageDown 连续翻页、连续调滑块——只通知 UI 的监听者，不改 held、不入队（不产生游戏动作）
+      if (REPEATABLE.has(b) && this.held.has(b)) this.notify(b, true);
+      return;
+    }
     if (b === 'Escape' && (this.pointerLocked || performance.now() - this.unlockedAt < ESC_AFTER_UNLOCK_MS)) return;
     this.emit(b, true);
   }
@@ -413,6 +446,8 @@ export class InputManager {
     if (this.pointerLocked) {
       this.lockedAt = performance.now();
       this.accDx = this.accDy = 0;
+      this.lockFails = 0;
+      this.everLocked = true;
       this.updateGate();
       return;
     }
@@ -432,6 +467,17 @@ export class InputManager {
   private onLockError(): void {
     this.lockPending = false;
     this.lockFailedAt = performance.now();
+    this.lockFails++;
+    // M4 第 2 轮：本页面从没锁上过、又连续被拒 → 降级为按住左键拖拽转视角（iframe 缺 allow="pointer-lock"、浏览器策略禁用），
+    // 收起“点击继续”（否则玩家永远卡在遮罩上），并说一次怎么转视角
+    if (!this.everLocked && this.lockFails >= LOCK_FAIL_FALLBACK && !this.dragFallback) {
+      this.dragFallback = true;
+      if (this.lockRetry !== null) {
+        window.clearTimeout(this.lockRetry);
+        this.lockRetry = null;
+      }
+      this.game.ui.toast(STRINGS.boot.lockFallback, 'system');
+    }
     this.updateGate();
   }
 

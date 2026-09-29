@@ -183,6 +183,42 @@ export const CASES = [
       await g.check.noFlags('r1.drawer_open');
     },
   },
+  {
+    // M4 第 2 轮：抽屉开了以后 H 讲院门，不再从“脑门上的字”说起（GDD §3.12 分阶段提示；待同步 GDD §5 P2）
+    puzzle: 'P2', name: 'H：抽屉开了、院门还锁着 → 提示讲院门', preset: 'new',
+    extra: {
+      flags: { 'r1.log_taken': true, 'r1.gate_lamp_on': true, 'r1.met_tudi': true, 'r1.ability_replay': true, 'r1.p1_done': true, 'r1.mission_given': true, 'r1.drawer_open': true },
+      items: ['it.log', 'it.keys', 'it.bulb', 'it.slip_0473', 'it.idcard'], photos: ['ph.tudi'],
+    },
+    run: async g => {
+      const r = await g.call('hint');
+      g.assert(r.puzzle === 'pz.p02_huoji_birthday' && r.text.includes('院门') && !r.text.includes('脑门'), `抽屉开了以后的 P2 提示应讲院门：${JSON.stringify(r)}`);
+    },
+  },
+  {
+    // M4 第 2 轮：寅时按带子看到哪儿，土地换话（原来看完带子、听完那句话还是“先瞅瞅吧”；待同步 GDD §8.1“寅时”）
+    name: '寅时的土地：看完带子 / 听完那句话 / 摆上画以后各说一句', preset: 'yin',
+    run: async g => {
+      const talk = async (flags, want) => {
+        await g.call('setState', { flags, area: 'r1', spawn: 'spawn.r1_start' });
+        await g.call('goto', 'r1', 2.2, 3.6);
+        await g.call('vf', true);
+        await tryFeedback(g, want, 'interact', 'npc.tudi');
+        // 说完一句接两个话题：选最后一项（非强制对话自动追加的“（先这样）”）离开
+        for (let i = 0; i < 4; i++) {
+          const s = await g.refresh();
+          if (!s.dialogue) break;
+          if (s.dialogue.options.length) await g.call('choose', s.dialogue.options.length);
+          else await g.call('dlg');
+        }
+        await g.call('vf', false);
+      };
+      await talk({ 'r1.tape_in_vcr': true }, '先瞅瞅吧');
+      await talk({ 'r1.tape_watched': true }, '门口那团雪花还记着');
+      await talk({ 'r1.heard_voice': true }, '陆师傅那张画，摆到桌上');
+      await talk({ 'r1.portrait_placed': true }, '画还差一张脸');
+    },
+  },
   // ———————————————— 门槛：院门（动态碰撞体）
   {
     name: '院门：开锁前 walk() 被挡，开锁后能走出去', preset: 'new', extra: { flags: { 'r1.log_taken': true, 'r1.drawer_open': true }, items: ['it.log', 'it.keys'] },

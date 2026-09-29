@@ -196,6 +196,12 @@ export class RenderPipeline {
   private lastCalls = { total: 0, feeds: 0 };
   /** resize() 之后回调（Game 用它把画框交给 UI）。WP1 内部。 */
   onResize: ((w: number, h: number) => void) | null = null;
+  /**
+   * M4 第 2 轮（WP1 内部）：本帧 rAF 的时间戳（Game.onFrame 写入，下一次 render 采样后清空）。动态分辨率的帧间隔按它算：
+   * 渲染结束时刻的 performance.now() 带着相邻两帧工作量之差的抖动，60Hz 下 p10 间隔被拉低，“贴着垂直同步”的升档判据永远不成立。
+   * advance/renderNow（测试、锁步）没有时间戳，退回 performance.now()（那时动态分辨率本来就关着）。
+   */
+  frameStamp: number | null = null;
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, cameras: CameraRig, post: PostPipeline) {
     this.renderer = renderer;
@@ -327,7 +333,8 @@ export class RenderPipeline {
 
   /** 动态分辨率采样（ARCH §13.2；M4：规则见 DynResGovernor）。帧时是真实时间（这是性能调度，不是玩法计时）。 */
   private sampleFrameTime(): void {
-    const now = performance.now();
+    const now = this.frameStamp ?? performance.now();
+    this.frameStamp = null;
     const dtMs = this.lastFrameAt > 0 ? now - this.lastFrameAt : 0;
     this.lastFrameAt = now;
     if (!this.dynOn || !QUALITY[this.quality].dynamicRes || this.levels.length < 2) return;

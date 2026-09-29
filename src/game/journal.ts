@@ -127,8 +127,9 @@ export class JournalSystem {
       this.game.events.emit('journal:page', { index: p.def.index });
     }
     if (fresh > 0) {
-      this.game.ui.toast(STRINGS.hud.newPage, 'page');
-      this.game.audio.music('motif_dea');
+      // M4 第 2 轮：过场/对话里出的新页，提示与主动机一起延后到它们结束（UI.toast 的 'page' 闸门；onShow 在真正显示时调）
+      const audio = this.game.audio;
+      this.game.ui.toast(STRINGS.hud.newPage, 'page', { onShow: () => audio.music('motif_dea') });
     }
   }
 

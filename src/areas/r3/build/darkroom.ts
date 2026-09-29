@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import type { AreaContext } from '../../../core/area';
+import type { V3 } from '../../../core/types';
 import { MATERIALS } from '../../../fx/materials';
 import { paintTexture } from '../../../kit/canvas';
 import { kitMat } from '../../../kit/geom';
@@ -30,6 +31,45 @@ export interface DarkroomRig {
   frames: THREE.Group[];
   /** 晾片绳的拾取代理（细长不渲染的盒子；绳子本身是 LineSegments，拿来做射线太粗） */
   lineProxy: THREE.Mesh;
+}
+
+/**
+ * 工作台上的第三人称拾取代理（M4 第 2 轮）：暗房只有 3m 见方，第三人称相机被顶棚压到 2.5–2.6m、俯仰到 −35° 的下限时，
+ * 人贴着台子站，准星射线越过容器、落在容器背后的北墙上（离地 1.1–1.3m），于是退到就近聚焦——按 E 拉了灯绳、点了别的容器。
+ * 每件容器（与水池）各两块不渲染的盒子，x 按相邻容器的中点分界、彼此相接（准星落在哪一段台面/墙根上就是哪一件）：
+ *   ① 贴着台面的薄板：z 从台沿到墙，y 从台面到 +0.16m（准星落在容器前后的台面上也算）；
+ *   ② 靠墙的一块：z 从墙到墙前 0.37m，y 到 BACK_TOP（接住越过容器、打在后墙上的射线：准星落在哪件容器背后的墙上就是哪一件）。
+ * 不做成整段台面上方的高柱子：那样斜着瞄远处的容器时，射线会在半空先穿过旁边那件的柱子（瞄水池选中了深盆）；贴墙的一层薄薄的，
+ * 斜着的射线只在快撞墙时才穿过它。容器因此不参与就近聚焦（logic.ts），准星没落在台面/后墙上时不会就近选中哪一件。
+ * 锚点仍在容器里（薄板里；水池的锚点在龙头上，在靠墙那块里——取景器里瞄龙头，细细的水管打不中，靠墙那块接住）。
+ */
+const SLAB_H = 0.16;
+const BACK_TOP = 1.9;
+const BACK_DEPTH = 0.37;
+/** 代理盒在 x 上的分界（容器从西往东：豁口盘 | 方盘 | 深盆 | 水池）。 */
+const PROXY_X = [DARK.x0 + 0.02, (PLATE_CHIPPED[0] + TRAY_SQUARE[0]) / 2, (TRAY_SQUARE[0] + BASIN_XI[0]) / 2, SINK[0] - 0.36, DARK.x1 - 0.04] as const;
+const _yAxis = new THREE.Vector3(0, 1, 0);
+
+/** 与世界轴对齐的代理盒（世界坐标的 min/max），挂到容器组下（容器绕 y 转过：把偏移转回容器的局部）。 */
+function proxyBox(ctx: AreaContext, parent: THREE.Object3D, min: V3, max: V3, name: string): THREE.Mesh {
+  const geo = ctx.track(new THREE.BoxGeometry(max[0] - min[0], max[1] - min[1], max[2] - min[2]));
+  const m = new THREE.Mesh(geo, MATERIALS.hitProxy());
+  m.name = name;
+  const off = new THREE.Vector3((min[0] + max[0]) / 2 - parent.position.x, (min[1] + max[1]) / 2 - parent.position.y, (min[2] + max[2]) / 2 - parent.position.z);
+  off.applyAxisAngle(_yAxis, -parent.rotation.y);
+  m.position.copy(off);
+  m.rotation.y = -parent.rotation.y;
+  m.userData.occlude = false;
+  parent.add(m);
+  return m;
+}
+
+/** 一件容器的两块代理盒（见上）；front/wall 是台沿与北墙墙面的 z。 */
+function benchProxy(ctx: AreaContext, parent: THREE.Object3D, x0: number, x1: number, front: number, wall: number, name: string): void {
+  for (const [min, max, part] of [
+    [[x0, BENCH.top, wall + 0.01], [x1, BENCH.top + SLAB_H, front + 0.02], 'Slab'],
+    [[x0, BENCH.top, wall + 0.01], [x1, BACK_TOP, wall + BACK_DEPTH], 'Back'],
+  ] as const) proxyBox(ctx, parent, min, max, `${name}${part}`);
 }
 
 /** 暗房白灯与红灯（同一盏灯；ARCH §10.3 的设计强度）。距离 ≤ 4：光照不出暗房多远（点光不投影，墙挡不住）。 */
@@ -76,6 +116,9 @@ export function buildDarkroom(ctx: AreaContext, B: Batch): DarkroomRig {
   ctx.collider.box([(SHOP.x0 + x0) / 2, 1.5, (z0 + SHOP.back) / 2], [x0 - SHOP.x0, 3, z0 - SHOP.back]);
   ctx.collider.box([(x1 + SHOP.x1) / 2, 1.5, (z0 + SHOP.back) / 2], [SHOP.x1 - x1, 3, z0 - SHOP.back]);
   ctx.collider.box([(x0 + x1) / 2, 1.5, (z1 + SHOP.back) / 2], [x1 - x0, 3, z1 - SHOP.back]);
+  // 顶棚碰撞板（M4 第 2 轮）：第三人称相机只躲碰撞体，原来低头时吊臂升到 2.9m、钻到顶棚板上面，整屏是顶棚的背面（一片黑），
+  // 准星射线也从顶棚上面打下来、先碰到顶棚——暗房里第三人称什么都聚焦不上，全靠就近规则乱选
+  ctx.collider.box([(SHOP.x0 + x1 + 0.15) / 2, (ceil + SHOP.studioCeil) / 2, (SHOP.back + z0) / 2], [x1 + 0.15 - SHOP.x0, SHOP.studioCeil - ceil, z0 - SHOP.back]);
 
   // 北墙工作台：木柜身 + 白瓷砖台面（水池那段是独立的水泥池）
   const bz1 = BENCH.z + BENCH.depth / 2;
@@ -113,6 +156,11 @@ export function buildDarkroom(ctx: AreaContext, B: Batch): DarkroomRig {
   sink.position.set(...SINK);
   sink.rotation.y = Math.PI;
   ctx.add(sink);
+  // 第三人称拾取代理（见 benchProxy）：台沿在 bz1，北墙墙面在 z1
+  benchProxy(ctx, plate, PROXY_X[0], PROXY_X[1], bz1, z1, 'r3.plateProxy');
+  benchProxy(ctx, tray, PROXY_X[1], PROXY_X[2], bz1, z1, 'r3.trayProxy');
+  benchProxy(ctx, basin, PROXY_X[2], PROXY_X[3], bz1, z1, 'r3.basinProxy');
+  benchProxy(ctx, sink, PROXY_X[3], PROXY_X[4], bz1, z1, 'r3.sinkProxy');
   // 药水瓶、量杯、定时钟（西墙搁板）
   for (const y of [1.35, 1.8]) B.aabb(darkWood, x0, y, -13.3, x0 + 0.3, y + 0.03, -11.8);
   const brown = kitMat('r3:bottle', { color: '#3a1a08', roughness: 0.15, metalness: 0.1 });
@@ -151,8 +199,10 @@ export function buildDarkroom(ctx: AreaContext, B: Batch): DarkroomRig {
   ctx.add(line);
   B.rod(metal, [x0, DRYING.y, DRYING.z], [DRYING.x0, DRYING.y, DRYING.z], 0.004);
   B.rod(metal, [DRYING.x1, DRYING.y, DRYING.z], [x1, DRYING.y, DRYING.z], 0.004);
-  const lineProxy = new THREE.Mesh(new THREE.BoxGeometry(DRYING.x1 - DRYING.x0, 0.12, 0.08), MATERIALS.hitProxy());
-  lineProxy.position.set((DRYING.x0 + DRYING.x1) / 2, DRYING.y - 0.04, DRYING.z);
+  // 1.83–1.93m（M4 第 2 轮：原来 1.80–1.92m，站在绳子跟前、取景器的眼睛（1.85m）离绳子十来厘米时往下看台子，射线还没降出代理的下沿
+  // 就碰到了它；下沿提到 1.83m，俯角 ≥ 15° 的射线都从它底下过去）
+  const lineProxy = new THREE.Mesh(new THREE.BoxGeometry(DRYING.x1 - DRYING.x0, 0.1, 0.08), MATERIALS.hitProxy());
+  lineProxy.position.set((DRYING.x0 + DRYING.x1) / 2, DRYING.y - 0.02, DRYING.z);
   lineProxy.name = 'r3.dryingLineProxy';
   ctx.add(lineProxy, { occlude: false });
 
@@ -172,11 +222,22 @@ export function buildDarkroom(ctx: AreaContext, B: Batch): DarkroomRig {
   light.name = 'r3.darkLight';
   light.position.set(DARK_LAMP[0], DARK_LAMP[1] - 0.08, DARK_LAMP[2]);
   ctx.light(light);
+  // 吊灯的碰撞块（灯罩下沿到顶棚；人够不着，只挡第三人称相机）：顶棚压低以后相机在 2.5m 上下转，原来会钻进灯罩里，
+  // 画面贴着灯罩、准星射线一出来就撞上灯罩（M4 第 2 轮）
+  ctx.collider.box([DARK_LAMP[0], (DARK_LAMP[1] - 0.08 + ceil) / 2, DARK_LAMP[2]], [0.4, ceil - (DARK_LAMP[1] - 0.08), 0.4]);
   // 灯绳（GDD：(-0.3, 1.8, -11.4)）
   B.rod(cordMat, [LAMP_CORD[0], ceil, LAMP_CORD[2]], [LAMP_CORD[0], LAMP_CORD[1] + 0.03, LAMP_CORD[2]], 0.003);
   const cordKnob = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.06, 10), kitMat('r3.cordKnob', { color: '#c8b27a', roughness: 0.6 }));
   cordKnob.position.set(...LAMP_CORD);
   ctx.add(cordKnob);
+  // 灯绳的拾取代理：沿绳子从拉手到顶棚下的一根细长盒子（M4 第 2 轮：灯绳不再参与就近聚焦，只能拿准星对准；
+  // 4cm 的拉手太小，第三人称相机在 2.4m 高处往下俯，对准绳子任何一段都算）
+  const cordTop = ceil - 0.05, cordBot = LAMP_CORD[1] - 0.04;
+  const cordProxy = new THREE.Mesh(ctx.track(new THREE.BoxGeometry(0.1, cordTop - cordBot, 0.1)), MATERIALS.hitProxy());
+  cordProxy.name = 'r3.cordProxy';
+  cordProxy.position.set(0, (cordTop + cordBot) / 2 - LAMP_CORD[1], 0);
+  cordProxy.userData.occlude = false;
+  cordKnob.add(cordProxy);
 
   // 底片（挂上之前隐藏）：片头 + 1–4 格（各自一个组，拍照主体 r3.film_frame1–4）+ 5–12 格
   const H = FILM.leader + 12 * (FILM.frame + FILM.gap);

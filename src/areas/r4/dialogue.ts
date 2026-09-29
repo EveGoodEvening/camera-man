@@ -34,8 +34,8 @@ export const DIALOGUES = defineDialogues('r4', {
   [DLG4.huangUnmasked]: seq([['', TEXT.fb.unmask], [H, TEXT.huang.unmasked]]),
   [DLG4.huangTrueForm]: seq([[H, TEXT.huang.trueForm]]),
   [DLG4.huangHides]: seq([[H, TEXT.huang.hides]]),
-  // 动作提示（半天没出声，尾巴垂下去）写在台词前、同一行里（M4，见 text.ts huangNormalLine）
-  [DLG4.huangNormal]: seq([[H, TEXT.fb.huangNormalLine]]),
+  // 动作单独成一行旁白，再是他的台词（M4 第 2 轮，与 huang_ir 的“（他笑出了声，又像在哭）”同一体例）
+  [DLG4.huangNormal]: seq([['', TEXT.fb.huangNormalAside], [H, TEXT.fb.huangNormal]]),
   [DLG4.huangIr]: {
     start: 'l1',
     forced: true,
@@ -43,8 +43,9 @@ export const DIALOGUES = defineDialogues('r4', {
       l1: { who: H, text: TEXT.huang.ir1, next: 'aside' },
       aside: { who: '', text: TEXT.huang.irAside, next: 'l2' },
       l2: { who: H, text: TEXT.huang.ir2, next: 'ask' },
+      // 选项节点带上刚才那句（M4 第 2 轮整合：原来没有正文，出选项时他问的那句“有人说过你像个人没有？”被清空；同文本打字机不重播，同 r1 老周的 c1/c2）
       ask: {
-        type: 'choice',
+        type: 'choice', who: H, text: TEXT.huang.ir2,
         options: [
           { label: TEXT.huang.optNod, next: 'nod' },
           { label: TEXT.huang.optShake, next: 'shake' },

@@ -3,7 +3,7 @@
 // Action 不带按键时长，“长按空格跳过”简化为按一下（engine-wp4.md）。自愈同 DialogueMode。
 
 import type { ModeId } from '../../core/types';
-import { fail } from '../../core/types';
+import { fail, ok } from '../../core/types';
 import type { Action, ActionResult } from '../../core/actions';
 import type { ModeCamera, ModeHandler, ModeMove } from '../../core/modes';
 import type { PointerPolicy } from '../../core/input';
@@ -39,6 +39,10 @@ export class CutsceneMode implements ModeHandler {
         return c.onZoom(a.dir);
       case 'play':
         return c.trySkip();
+      case 'back':
+        // M4 第 2 轮：Esc = 暂停菜单（暂停冻结世界、挂起音频，过场停在原处）
+        this.game.requestPause();
+        return ok();
       default:
         return fail('mode_disallows');
     }

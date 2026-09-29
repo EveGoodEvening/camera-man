@@ -149,10 +149,12 @@ export function sayDuration(text: string, dur?: number): number {
  * 出一条字幕（E.say、过场 say、提示共用）：UI 字幕 + 含糊人声。WP4 内部。
  * 'feedback' 事件由 `UI.subtitle` 发（带 speaker；与 `UI.toast` 同一约定，ARCH §7），这里不再重复发（M1c，engine-wp4.md #3 / engine-wp6.md #8）。
  */
-export function speak(game: Game, text: string, who: SpeakerId | '' = '', dur?: number): void {
+export function speak(game: Game, text: string, who: SpeakerId | '' = '', dur?: number, kind?: 'hint'): void {
   const d = sayDuration(text, dur);
-  // M4：字幕按阅读速度多停一会儿（过场节拍仍按 sayDuration）；显式给了时长的照旧
-  game.ui.subtitle(text, who, dur ?? Math.max(d, readSec(text)));
+  // M4：字幕按阅读速度多停一会儿（过场节拍仍按 sayDuration）。M4 第 2 轮：显式给了时长的也不短于阅读时间（只影响显示）
+  const show = Math.max(dur ?? d, readSec(text));
+  if (kind) game.ui.subtitle(text, who, show, { kind });
+  else game.ui.subtitle(text, who, show);
   if (who !== '' && !isNarration(who)) game.audio.murmur(who, d);
 }
 
@@ -440,7 +442,10 @@ export class EffectRunner {
         const key = `tutorial:${e.text}`;
         if (!g.state.seen(key)) {
           g.state.markSeen(key);
-          g.ui.toast(e.text, 'tutorial');
+          // M4 第 2 轮：教学条等“风平浪静”（过场、对话、面板都结束 0.5 秒）再显示（UI.tutorial）；只有 toast 的简化 UI（node 自测）照旧
+          const ui = g.ui as { tutorial?: (t: string) => void };
+          if (typeof ui.tutorial === 'function') ui.tutorial(e.text);
+          else g.ui.toast(e.text, 'tutorial');
         }
         break;
       }
@@ -510,6 +515,12 @@ export interface GameApi {
   player: {
     readonly position: THREE.Vector3; readonly eye: THREE.Vector3; readonly yaw: number;
     teleport(p: V3, yaw?: number, fadeSec?: number): Promise<void>;
+    /**
+     * M4 第 2 轮整合补写：只改视角 yaw/pitch（俯仰按第三人称范围 −35°～+50° 钳制），不转身体、不动位置。
+     * 过场收尾 {cam:'player'} 之前摆好第三人称的构图用（开场：坐着的伙计低头，桌上发光的巡夜本露在头边上）；
+     * 要在 {cam:'player'} 之前至少一帧调用（第三人称相机每帧跟着 yaw/pitch 更新，{cam:'player'} 取的是那一刻的位姿）。
+     */
+    look?(yaw: number, pitch: number): void;
     readonly model: {
       /** 开场坐在椅子上 */
       setPose(p: Pose, blendSec?: number): void;
@@ -614,6 +625,12 @@ class GameApiImpl implements GameApi {
         if (yaw !== undefined) o.yaw = yaw;
         if (fadeSec !== undefined) o.fade = fadeSec;
         return game.areas.teleport(p, o);
+      },
+      look: (yaw, pitch) => {
+        if (!guard('player.look')) return;
+        game.player.yaw = ((yaw % 360) + 360) % 360;
+        game.player.pitch = pitch;
+        game.player.clampPitch('tp');
       },
       model,
     };

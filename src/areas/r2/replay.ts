@@ -56,6 +56,17 @@ function carried(keys: readonly ReplayActorKey[]): { t: number; pos: V3; yaw: nu
 
 /** 2018 春节：门神片段道具在第 6–8 秒“正在被贴上”（第 8 秒起撤掉，现世的 r2.menshen 在同一位置出现，GDD P4）。 */
 const M = R2.menshenCenter;
+/**
+ * 门口三段进段时镜头转向的点（ReplaySegmentDef.focus，M4 第 2 轮）：502 门框中部、门神那一截。
+ * 不给时引擎取人影关键帧的平均点——2019/2018 两段会转向楼梯口（东），门神与“王奶奶和门神同框”的那一下全在身后。
+ */
+const DOOR_FOCUS: V3 = [-4.8, Y5 + 1.3, 1.2];
+/**
+ * 2018 那段的焦点偏向门北侧站着的王奶奶（门神与她中间的方向）：取景器画幅 4:3，照片要求主体锚点在画面中间 ±60% 以内，
+ * 离门 2m 上下时以门为中心她正好出界（GDD §11 步骤 20 在 (-2.8,1.2) 就地倒带）；偏过去以后在残影点两侧 0.8m 内门神与她
+ * 都在 ±45% 左右，建国（门南侧，离镜头近）出画也无妨。
+ */
+const DOOR_2018_FOCUS: V3 = [-4.7, Y5 + 1.15, 0.72];
 const MENSHEN_KEYS = [
   { t: 0, pos: [M[0] + 0.4, M[1], M[2]] as V3, yaw: 0, visible: false },
   { t: 6, pos: [M[0] + 0.32, M[1] - 0.05, M[2] + 0.02] as V3, yaw: 0, visible: true },
@@ -86,14 +97,14 @@ export const SEGMENTS: readonly ReplaySegmentDef[] = [
   },
   {
     // 2025 年秋，建国搬家，抱着纸箱在门口站了一会儿，没揭门神
-    id: SEG.DOOR_2025, point: RP.R2_DOOR, order: 1, osd: '2025-10-02 09:40', dur: 16, loop: true,
+    id: SEG.DOOR_2025, point: RP.R2_DOOR, order: 1, focus: DOOR_FOCUS, osd: '2025-10-02 09:40', dur: 16, loop: true,
     actors: [{ id: GHOST.JIANGUO_2025, rig: 'mannequin', character: 'jianguo', keys: JG25 }],
     props: [{ id: 'box', mesh: prop('box'), keys: carried(JG25) }],
     subs: [],
   },
   {
     // 2019 年冬，担架从楼道口抬上来，在门口停了停，又抬下去
-    id: SEG.DOOR_2019, point: RP.R2_DOOR, order: 2, osd: '2019-12-21 06:15', dur: 14, loop: true,
+    id: SEG.DOOR_2019, point: RP.R2_DOOR, order: 2, focus: DOOR_FOCUS, osd: '2019-12-21 06:15', dur: 14, loop: true,
     actors: [
       {
         id: GHOST.STRETCHER_2019, rig: 'crowd', crowd: { count: 2, cols: 1, spacing: 2.0, look: 'replay', seed: 2019 },
@@ -106,12 +117,14 @@ export const SEGMENTS: readonly ReplaySegmentDef[] = [
   {
     // 2018 年 2 月 16 日春节，建国贴门神，王奶奶站在边上喊“歪了歪了”（GDD P4）：
     // 0–6 秒门上是光的（现世门神 [0,8) 隐去），6–8 秒片段道具贴上去（左边那张歪约 8°），8 秒起现世门神在同一位置出现
-    id: SEG.DOOR_2018, point: RP.R2_DOOR, order: 3, osd: '2018-02-16 10:21', dur: 24, loop: true,
+    id: SEG.DOOR_2018, point: RP.R2_DOOR, order: 3, focus: DOOR_2018_FOCUS, osd: '2018-02-16 10:21', dur: 24, loop: true,
     actors: [
       {
         id: GHOST.JIANGUO_2018, rig: 'mannequin', character: 'jianguo',
+        // 从楼梯口贴着走廊北墙过来（M4 第 2 轮：残影点挪到 x=-2.6 后，原来沿走廊中线走会从站在旋涡上的玩家身上穿过去）
         keys: [
-          k(0, -1.2, 0.9, 270, 'walk'),
+          k(0, -0.8, 0.3, 270, 'walk'),
+          k(2.2, -3.3, 0.35, 270, 'walk'),
           k(3.4, -4.25, 1.2, 270, 'carry'),
           k(5.6, -4.3, 1.2, 270, 'carry'),
           k(6.0, -4.35, 1.2, 270, 'raise_arm'),

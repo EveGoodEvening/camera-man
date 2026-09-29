@@ -10,6 +10,8 @@ import { blotch, canvasToTexture, createCanvas, grain, paintTexture, shade, wate
 import { kitMat, mergeByMaterial, newMat } from '../kit/geom';
 import { rng, range } from '../kit/rng';
 import { FONT_STACK } from '../kit/text';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { torsoSurface, type HumanoidInternal } from './humanoid';
 
 // ---------------------------------------------------------------- 衣服贴图（躯干 UV：左半 = 前胸，右半 = 后背，见 humanoid.ts torsoGeo）
 
@@ -616,7 +618,8 @@ function glasses(s: number): THREE.Group {
   }
   const bridge = mesh(new THREE.BoxGeometry(0.02 * s, 0.003 * s, 0.003 * s), frame, 'bridge');
   g.add(bridge);
-  g.position.set(0, 0.145 * s, -0.098 * s);
+  // M4 第 2 轮：往前挪到脸面上（原来一半埋在头球里）
+  g.position.set(0, 0.145 * s, -0.106 * s);
   g.rotation.x = 0.08;
   return g;
 }
@@ -719,6 +722,66 @@ function scarf(s: number): THREE.Mesh {
   const m = mesh(new THREE.ConeGeometry(0.06 * s, 0.1 * s, 3).rotateX(Math.PI).translate(0, -0.05 * s, -0.09 * s), kitMat('scarf.red', { color: '#C8171E', roughness: 0.9 }), 'scarf');
   m.position.y = 0.43 * s;
   return m;
+}
+
+/**
+ * M4 第 2 轮：中山装的立体细节（陆师傅、黄三爷）——立领（领座 + 外翻的领面，前面留一道小口）、前襟一列 5 粒扣、四个口袋盖。
+ * 位置取自 zhongshanTexture 上画的扣子与口袋（躯干贴图 u/v → torsoSurface），口袋盖贴着衣服表面、朝外法线。
+ * 返回两块网格（衣料、扣子），挂在 spine 上；调用方 adopt 进材质模式。魂影/回放里实度 0.3（ghostSolid）：是衣服，不是辨识道具。
+ * 原来中山装只剩贴图上几条淡线，没有立领和口袋的轮廓。
+ */
+export function zhongshanDetails(h: HumanoidInternal, color: string): THREE.Group {
+  const s = h.s;
+  const g = new THREE.Group();
+  g.name = 'zhongshan';
+  const cloth = kitMat(`zhongshan.${color}`, { color: shade(color, 0.92), roughness: 0.88, side: THREE.DoubleSide, tempC: TEMP_C.alive });
+  const btnMat = kitMat(`zhongshan.btn.${color}`, { color: shade(color, 0.5), roughness: 0.45, tempC: TEMP_C.alive });
+  const parts: THREE.BufferGeometry[] = [];
+  const top = 0.452 * s;
+  // 立领：领座（直筒）+ 领面（往外翻、略外撇），前面正中留一道口（圆柱 θ = π 是正前方 -z）
+  const gap = 0.32;
+  const stand = new THREE.CylinderGeometry(0.078 * s, 0.08 * s, 0.042 * s, 22, 1, true, Math.PI + gap / 2, Math.PI * 2 - gap);
+  stand.scale(1, 1, 0.9);
+  stand.translate(0, top + 0.016 * s, 0);
+  const fold = new THREE.CylinderGeometry(0.084 * s, 0.102 * s, 0.034 * s, 22, 1, true, Math.PI + gap, Math.PI * 2 - gap * 2);
+  fold.scale(1, 1, 0.92);
+  fold.translate(0, top + 0.002 * s, 0);
+  parts.push(stand.toNonIndexed(), fold.toNonIndexed());
+  stand.dispose();
+  fold.dispose();
+  const m = new THREE.Matrix4();
+  const place = (geo: THREE.BufferGeometry, u: number, y: number, out: number): THREE.BufferGeometry => {
+    const f = torsoSurface(h, u, y);
+    m.makeBasis(f.t, f.up, f.n);
+    m.setPosition(f.p.addScaledVector(f.n, out));
+    geo.applyMatrix4(m);
+    return geo;
+  };
+  // 口袋盖：上兜（胸前，贴图 u 0.12 / 0.38，上沿 y ≈ 0.374s）与下兜（衣襟下摆，u 0.11 / 0.39，上沿 y ≈ 0.172s）；盖子下沿略翘
+  for (const [u, y, w] of [[0.12, 0.36, 0.08], [0.38, 0.36, 0.08], [0.11, 0.158, 0.1], [0.39, 0.158, 0.1]] as const) {
+    const flap = new THREE.BoxGeometry(w * s, 0.03 * s, 0.006 * s);
+    parts.push(place(flap, u, y * s, 0.004 * s).toNonIndexed());
+    flap.dispose();
+  }
+  const clothGeo = mergeGeometries(parts, false);
+  for (const p of parts) p.dispose();
+  const btnParts: THREE.BufferGeometry[] = [];
+  for (const y of [0.396, 0.342, 0.256, 0.154, 0.058]) {
+    const b = new THREE.CylinderGeometry(0.0085 * s, 0.0085 * s, 0.006 * s, 8);
+    b.rotateX(Math.PI / 2);
+    btnParts.push(place(b, 0.25, y * s, 0.003 * s).toNonIndexed());
+    b.dispose();
+  }
+  const btnGeo = mergeGeometries(btnParts, false);
+  for (const p of btnParts) p.dispose();
+  for (const [geo, mat, name] of [[clothGeo, cloth, 'zhongshanCloth'], [btnGeo, btnMat, 'zhongshanButtons']] as const) {
+    if (!geo) continue;
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = name;
+    mesh.userData.ghostSolid = 0.3;
+    g.add(mesh);
+  }
+  return g;
 }
 
 export const ACCESSORIES: AccessoryKit = {

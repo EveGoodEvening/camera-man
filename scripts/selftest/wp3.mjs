@@ -15,6 +15,7 @@
 //   node scripts/selftest/wp3.mjs --page       unit + 对已构建的 dist/ 跑页面内自测（先 npm run build；--dist=<目录> 指定构建目录）
 
 import path from 'node:path';
+import { launchChromium } from '../lib/browserSlots.mjs';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -291,7 +292,7 @@ export async function standalone() {
   });
   await server.listen();
   const port = server.config.server.port ?? 5287;
-  const browser = await chromium.launch({ args: CHROMIUM_ARGS });
+  const browser = await launchChromium(chromium, { args: CHROMIUM_ARGS }, 'wp3');
   const page = await browser.newPage({ viewport: { width: 800, height: 450 } });
   const problems = [];
   page.on('pageerror', e => problems.push(`pageerror: ${e}`));
@@ -352,7 +353,7 @@ async function pageAgainstDist(distDir) {
   const { preview } = await vite();
   const { chromium } = await playwright();
   const server = await preview({ root: ROOT, build: { outDir: distDir }, preview: { port: 4189, host: '127.0.0.1', strictPort: false } });
-  const browser = await chromium.launch({ args: CHROMIUM_ARGS });
+  const browser = await launchChromium(chromium, { args: CHROMIUM_ARGS }, 'wp3');
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 450 } });
     await page.goto(`http://127.0.0.1:${server.config.preview.port ?? 4189}/?${query}`);

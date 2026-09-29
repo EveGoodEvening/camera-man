@@ -35,7 +35,9 @@ export const CUTSCENES: readonly CutsceneDef[] = [
       // 桌上的巡夜本：墨迹未干的新一行。
       // M4：机位从伙计左臂内侧（画面右下是失焦的胳膊和手指）挪到本子正上方偏北、往下看：字是正的、整页入画，两只胳膊都在画外；
       // 这一镜把本子四周的光环压暗（temp(intro_log)，logic.ts），墨迹那一行是画面里最亮的东西
-      { run: (_g, ctx) => ctx.setTemp(TEMP.introLog, true) },
+      // 趁镜头在本子上，把收尾的第三人称视角摆成低头、略偏西（M4 第 2 轮：原来 yaw 180 / pitch −6，发光的本子被自己的后背和摄像头脑袋挡住；
+      // 现在本子露在头的左边，接下来拿控制、按 E 拾取时看得见它）
+      { run: (g, ctx) => { ctx.setTemp(TEMP.introLog, true); g.player.look?.(190, -26); } },
       { cam: { pos: [-6.42, 1.46, 21.1], target: [LOG_AT[0] + 0.01, LOG_AT[1], LOG_AT[2] + 0.03], fov: 34 }, blend: 1.2 },
       { wait: 0.6 },
       { say: INTRO.logLine, who: '', dur: 3.2 },

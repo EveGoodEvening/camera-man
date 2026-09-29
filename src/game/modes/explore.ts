@@ -32,6 +32,8 @@ export class ExploreMode implements ModeHandler {
   /** 不合法返回 { ok:false, reason:'mode_disallows' }；需要下传时返回 { ok:false, pass:true } */
   handle(a: Action): ActionResult {
     const g = this.game;
+    // M4 第 2 轮：标题画面（没有区域、标题页开着）只认 back（下面自己判）；其余动作一律不做（按键本来就不会到这里，见 InputManager.emit，这里是保险）
+    if (a.t !== 'back' && (!g.areas?.current || g.ui?.menus?.currentPage() === 'title')) return fail('mode_disallows');
     switch (a.t) {
       case 'interact':
         return g.sys.interaction.interactFocused('player');

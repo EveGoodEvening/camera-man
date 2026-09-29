@@ -112,7 +112,9 @@ function attachSmile(ctx: AreaContext, root: THREE.Object3D): THREE.Mesh | null 
   const tex = ctx.track(smileFaceTexture());
   const mat = ctx.track(new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   mat.userData.tempC = TEMP_C.yin;
-  const geo = ctx.track(new THREE.SphereGeometry(0.1015, 16, 10, Math.PI * 1.5 - 0.95, 1.9, 0.5, 1.5).scale(0.92 * 1.06, 1.12 * 1.06, 1.06));
+  // 纬度范围按人偶自己的五官对齐（M4 第 2 轮：原来 0.5–2.0 rad，整张笑脸比人偶的眼睛、嘴高出一截，推近时两张脸叠在一起；
+  // 显示笑脸时人偶自己的五官贴图收起来，见 stage.ts 的 sync）
+  const geo = ctx.track(new THREE.SphereGeometry(0.1015, 16, 12, Math.PI * 1.5 - 0.95, 1.9, 0.53, 2.18).scale(0.92 * 1.06, 1.12 * 1.06, 1.06));
   const face = new THREE.Mesh(geo, mat);
   face.name = 'fin.zhou.smile';
   face.renderOrder = 12;
@@ -132,7 +134,7 @@ export function buildLogic(ctx: AreaContext): FinaleRt {
 
   // ---------------------------------------------------------------- 桌子：摆遗像、补脸、放馄饨
   const deskProxy = buildDeskProxy(ctx);
-  const portrait: Handler = g => {
+  const portrait: Handler = async g => {
     if (g.state.flag(F.R1_PORTRAIT_PLACED)) {
       nothingHere(g);
       return;
@@ -141,6 +143,8 @@ export function buildLogic(ctx: AreaContext): FinaleRt {
     g.setFlag(F.R1_PORTRAIT_PLACED);
     // 陆师傅只出底部字幕，不进入对话（GDD P13 第 1 步）
     g.say(P13.luPlaced, NPC.LU);
+    // M4 第 2 轮：1.8 秒的桌面特写（第三人称里自己的脑袋盖着桌面，刚摆上的画看不见）
+    await g.cutscene(CS.PLACE);
   };
   const face: Handler = async g => {
     const s = g.state;
@@ -218,7 +222,11 @@ export function buildLogic(ctx: AreaContext): FinaleRt {
       index: TAPE.index,
       // 播放头以任何方式到达或越过 03:16:00（含正好跳到这个索引点）即设 r1.tape_watched（GDD §3.8）
       events: [{ tc: TAPE.watchedAt, effects: [E.flag(F.R1_TAPE_WATCHED)] }],
-      subtitles: [{ from: TAPE.events.steps[0], to: TAPE.events.steps[1], text: P12.noSound }],
+      // 05:12 天亮了、没人叫他（M4 第 2 轮：片名“天亮了，叫我”的第一次出现，原来只有 CH2 的窗户变亮，玩家很容易看漏）
+      subtitles: [
+        { from: TAPE.events.steps[0], to: TAPE.events.steps[1], text: P12.noSound },
+        { from: TAPE.events.dawn, to: '05:13:30', text: P12.dawnNobody },
+      ],
     });
   } else {
     devWarn('R1-finale：找不到 r1.crt 屏幕网格（R1-world 的 ref），录像机没有配置');
@@ -256,6 +264,10 @@ export function buildLogic(ctx: AreaContext): FinaleRt {
     when: F.R1_ZHOU_FED, blocked: P14.bracketNotYet,
     onInteract: g => g.dialogue(D.BRACKET),
   });
+  // 站在门口等合影的老周挡人（M4 第 2 轮）：合影判定只看身子离粉笔叉 ≤ 1.5m，他站的地方离叉只有 0.9m，
+  // 原来身子可以直接走进他的魂影里过关，拍出来两人叠在一起。吃完馄饨到合影成功之间给他一个 0.5m 见方的碰撞盒
+  // （加上身子的半径 0.3m，两人至少隔 0.55m）；不挡视线检查（seeThrough），合影成功（r1.soul_returned）即撤掉，过场里他照常走回屋
+  ctx.collider.dynamic('r1f_zhou_door', { box: { center: [ZHOU_DOOR[0], 0.9, ZHOU_DOOR[2]], size: [0.5, 1.8, 0.5] } }, `${F.R1_ZHOU_FED} && !${F.R1_SOUL_RETURNED}`, { seeThrough: true });
   ctx.tripod({
     mount: r.mount,
     camPose: CH1_POSE,

@@ -197,9 +197,10 @@ function street(ctx: AreaContext, st: Statics, decals: DecalAtlas): StreetLamps 
   // 东口：老街的路牌
   const blue = mat('roadSignPole', { color: '#5E6670', roughness: 0.45, metalness: 0.6 });
   st.box(0.07, 2.8, 0.07, blue, [sw.x1 + 0.6, 1.4, 29.6]);
-  boardSign(ctx, st, { text: '老街 →', style: 'painted', w: 1.1, h: 0.32, at: [sw.x1 + 0.56, 2.55, 29.6], yaw: 270, color: '#F2F2F2', bg: '#1C4E8C', depth: 0.02 });
+  // 两块路牌是反光膜：暖白字、字面微微自发光，钠灯雨夜里也读得出（M4 第 2 轮：原来纯漫反射，蓝底白字在钠灯下读成一块暗板，P6 找不着老街）
+  boardSign(ctx, st, { text: '老街 →', style: 'painted', w: 1.1, h: 0.32, at: [sw.x1 + 0.56, 2.55, 29.6], yaw: 270, color: '#FFF3DC', bg: '#1C4E8C', depth: 0.02, selfLit: 0.6 });
   st.box(0.07, 2.8, 0.07, blue, [sw.x0 - 0.6, 1.4, 29.6]);
-  boardSign(ctx, st, { text: '← 人民路', style: 'painted', w: 1.1, h: 0.32, at: [sw.x0 - 0.56, 2.55, 29.6], yaw: 90, color: '#F2F2F2', bg: '#1C4E8C', depth: 0.02 });
+  boardSign(ctx, st, { text: '← 人民路', style: 'painted', w: 1.1, h: 0.32, at: [sw.x0 - 0.56, 2.55, 29.6], yaw: 90, color: '#FFF3DC', bg: '#1C4E8C', depth: 0.02, selfLit: 0.6 });
   // 东口外老街的一角：矮房子（只建朝西的面）
   const oldSt = building({ x0: sw.x1 + 1.5, x1: sw.x1 + 9, z0: 22, z1: 40, floors: 2, floorH: 3, facade: 'plaster', faces: ['w'], windows: { w: 1.2, h: 1.2, spacing: 3.4, litRatio: 0.2, frame: 'wood' }, roof: 'flat', seed: 41 });
   addBuilding(ctx, st, oldSt, false);

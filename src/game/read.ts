@@ -55,6 +55,9 @@ const _img = new THREE.Vector3();
 const _x = new THREE.Vector3();
 const _ndc = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+/** M4 第 2 轮：镜中字“站偏”判定用的中心射线（frameDist 用 _dir/_ndc，这里另用一套，免得互相覆盖） */
+const _aimDir = new THREE.Vector3();
+const _aimHit = new THREE.Vector3();
 
 export class ReadSystem {
   protected readonly game: Game;
@@ -126,9 +129,10 @@ export class ReadSystem {
       const st = this.game.state as { seen?: (k: string) => boolean; markSeen?: (k: string) => void };
       if (st.seen && st.markSeen && !st.seen(key)) {
         st.markSeen(key);
-        // 只出教学条、不发 'feedback'（读字提示本身已经是 readHint）
-        const layer = (this.game.ui as { subs?: { toast(t: string, k: 'tutorial'): void } }).subs;
-        if (layer) layer.toast(STRINGS.tutorial.zoom, 'tutorial');
+        // 只出教学条、不发 'feedback'（读字提示本身已经是 readHint）；M4 第 2 轮：走 UI.tutorial 的“风平浪静”闸门
+        const ui = this.game.ui as { tutorial?: (t: string) => void; subs?: { toast(t: string, k: 'tutorial'): void } } | undefined;
+        if (typeof ui?.tutorial === 'function') ui.tutorial(STRINGS.tutorial.zoom);
+        else ui?.subs?.toast(STRINGS.tutorial.zoom, 'tutorial');
       }
     }
     if (best && best.id !== prev) {
@@ -174,6 +178,18 @@ export class ReadSystem {
     return Math.hypot(_ndc.x, _ndc.y);
   }
 
+  /** M4 第 2 轮：镜头中心射线打在镜盘内时返回交点到镜心的距离（归一到半径，当排序用的 d），否则 null。 */
+  private aimOnDisc(cam: THREE.PerspectiveCamera, center: THREE.Vector3, normal: THREE.Vector3, radius: number): number | null {
+    cam.getWorldDirection(_aimDir);
+    const denom = _aimDir.dot(normal);
+    if (Math.abs(denom) < 1e-6) return null;
+    const t = _aimHit.copy(center).sub(_eye).dot(normal) / denom;
+    if (t <= 0) return null;
+    _aimHit.copy(_eye).addScaledVector(_aimDir, t);
+    const r = _aimHit.distanceTo(center);
+    return r <= radius ? r / Math.max(1e-6, radius) : null;
+  }
+
   private tooSmallText(def: ReadTargetDef): string | null {
     return def.tooSmall === undefined ? STRINGS.feedback.readTooSmall : def.tooSmall;
   }
@@ -194,11 +210,16 @@ export class ReadSystem {
       if (sd <= 0 || sd > def.maxDist) return { kind: 'none' };
       reflectPoint(_p, disc.center, disc.normal, _img);
       const d = this.frameDist(cam, _img, frameBox);
-      if (d === null) return { kind: 'none' };
       const x = segmentPlaneIntersect(_eye, _img, disc.center, disc.normal, _x);
       if (!x || x.distanceTo(disc.center) > disc.radius) {
-        return def.notInMirror ? { kind: 'hint', text: def.notInMirror, d } : { kind: 'none' };
+        // 站偏了：虚像不在镜盘里。M4 第 2 轮：真人站偏时照常对着镜子中心看（虚像在镜外的墙上、画面外），
+        // 所以准星射线落在镜盘内也给 notInMirror（原来只有准星对着镜外的虚像时才给，基本不会出现）
+        if (!def.notInMirror) return { kind: 'none' };
+        if (d !== null) return { kind: 'hint', text: def.notInMirror, d };
+        const aim = this.aimOnDisc(cam, disc.center, disc.normal, disc.radius);
+        return aim !== null ? { kind: 'hint', text: def.notInMirror, d: aim } : { kind: 'none' };
       }
+      if (d === null) return { kind: 'none' };
       if (occludedBetween(_eye, x, getOccluders(), [])) return { kind: 'none' };
       if (vf.zoom >= def.minZoom) return { kind: 'read', d };
       const t = this.tooSmallText(def);

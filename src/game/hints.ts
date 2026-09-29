@@ -100,7 +100,7 @@ export class HintSystem {
     if (id === null) {
       const lines = STRINGS.tudiIdle;
       const text = lines[this.idleCount++ % lines.length]!;
-      speak(this.game, text, NPC.TUDI);
+      speak(this.game, text, NPC.TUDI, undefined, 'hint');
       return ok({ puzzle: null, level: 1, text });
     }
     const p = this.puzzles.find(x => x.def.id === id)!;
@@ -124,7 +124,8 @@ export class HintSystem {
     const appText = app ? hintText(app.def, app.def.stage?.(s) ?? 0, level) : null;
     // M4：冷却中重复同一级时告诉玩家稍后能问得更细（第 3 级不再追加）
     const later = repeat && level < 3 && !this.game.settings.hintNoCooldown ? STRINGS.feedback.hintLater : '';
-    speak(this.game, `${appText !== null ? `${text}\n${appText}` : text}${later}`, NPC.TUDI);
+    // M4 第 2 轮：提示字幕带 kind 'hint'，新提示替换屏幕上的旧提示（连按 H 不再叠两行）
+    speak(this.game, `${appText !== null ? `${text}\n${appText}` : text}${later}`, NPC.TUDI, undefined, 'hint');
     if (app && appText !== null) return ok({ puzzle: id, level, text, appended: { puzzle: app.def.id, text: appText } });
     return ok({ puzzle: id, level, text });
   }

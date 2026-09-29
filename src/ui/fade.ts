@@ -27,6 +27,8 @@ export class FadeLayer implements View {
   private readonly titleMain: HTMLElement;
   private readonly titleSub: HTMLElement;
   private readonly loadingEl: HTMLElement;
+  private readonly lostEl: HTMLElement;
+  private readonly lostText: HTMLElement;
   private black01 = 0;
   private blackRamp: Ramp | null = null;
   private white01 = 0;
@@ -46,9 +48,26 @@ export class FadeLayer implements View {
     this.titleSub = h('div', 'cm-fade-title-sub');
     this.titleEl.append(this.titleMain, this.titleSub);
     this.loadingEl = h('div', 'cm-loading', STRINGS.loading);
-    this.el.append(this.blackEl, this.whiteEl, this.titleEl, this.loadingEl);
+    this.lostEl = h('div', 'cm-lost');
+    this.lostText = h('div', 'cm-lost-box');
+    this.lostEl.append(this.lostText);
+    this.el.append(this.blackEl, this.whiteEl, this.titleEl, this.loadingEl, this.lostEl);
     setShown(this.titleEl, false);
     setShown(this.loadingEl, false);
+    setShown(this.lostEl, false);
+  }
+
+  /**
+   * M4 第 2 轮：WebGL 上下文丢失期间的常驻遮罩（与“载入中…”同层；text 为 null 时撤掉）。
+   * 原来是一条 4 秒的系统反馈条，过期后只剩黑屏，浏览器放弃恢复时玩家不知道该刷新。
+   */
+  setLostOverlay(text: string | null): void {
+    setText(this.lostText, text ?? '');
+    setShown(this.lostEl, text !== null);
+  }
+  /** 上下文丢失遮罩此刻的文字（自测用；没显示时 null）。 */
+  lostOverlay(): string | null {
+    return this.lostEl.classList.contains('cm-hidden') ? null : this.lostText.textContent;
   }
 
   /** DOM 黑幕渐变到 level01（0 = 透明，1 = 全黑），用时 sec（M1a 补写） */

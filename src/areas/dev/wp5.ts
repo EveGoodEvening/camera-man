@@ -482,6 +482,9 @@ export const WP5_READ_CASES: readonly ReadCase[] = [
   { name: 'mirror front 2× → tooSmall', target: RD.STICKER_MIRROR, stand: WP5_POS.mirrorFront, aim: 'target', zoom: 2, expect: { hint: STRINGS.feedback.readTooSmall } },
   { name: 'mirror side 0.6m → notInMirror', target: RD.STICKER_MIRROR, stand: WP5_POS.mirrorSide, aim: 'target', zoom: 3,
     expect: { hint: '（镜子里照不到你的脑门。往镜子正前方站。）' } },
+  // M4 第 2 轮：真人站偏时照常对着镜子中心看（虚像在镜外、不在画面里）——也给 notInMirror
+  { name: 'mirror side 0.6m, aim at the mirror → notInMirror', target: RD.STICKER_MIRROR, stand: WP5_POS.mirrorSide, aim: WP5_POS.mirror, zoom: 3,
+    expect: { hint: '（镜子里照不到你的脑门。往镜子正前方站。）' } },
   { name: 'follower 1× → nothing (tooSmall:null)', target: RD.HUANG_BREATH, stand: WP5_POS.followerStand, aim: 'target', zoom: 1, expect: { hint: null } },
   { name: 'follower 4× → read', target: RD.HUANG_BREATH, stand: WP5_POS.followerStand, aim: 'target', zoom: 4, expect: { reading: RD.HUANG_BREATH } },
 ];

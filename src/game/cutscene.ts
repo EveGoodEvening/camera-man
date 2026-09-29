@@ -53,7 +53,12 @@ export type CutStep =
   | { await: 'shutter' | 'zoom'; zoom?: ZoomLevel; prompt?: string; early?: string }
   | { music: MusicCue }
   | { sfx: SfxCue }
-  | { post: { key: string; params: Partial<FxParams> } | { pop: string } };
+  | { post: { key: string; params: Partial<FxParams> } | { pop: string } }
+  /**
+   * M4 第 2 轮：从这一步起，玩家按住空格时本过场的计时步骤（wait/say/title/fade/during）按 ×hurry 推进（片尾字幕这类不可跳过、
+   * 但首看以后允许快进的段落）；null 关掉。不改不可跳过的语义——松开就恢复原速。
+   */
+  | { hurry: number | null };
 
 export interface CutsceneDef { id: CutsceneId; steps: readonly CutStep[]; skippable?: 'never' | 'rewatch'; restore?: boolean }
 
@@ -68,6 +73,8 @@ interface CRun {
   timer: number | null;
   during: { total: number; t: number; tick: (g: GameApi, t01: number, dt: number, ctx: AreaContext) => void } | null;
   awaiting: 'shutter' | 'zoom' | null;
+  /** M4 第 2 轮：{hurry} 步骤设的“按住空格加速”倍率（null = 不加速） */
+  hurry?: number | null;
   awaitZoom: ZoomLevel | undefined;
   /** M4：等输入时的提示（每 5 秒重发一次，直到等到为止）与计时 */
   prompt: string | null;
@@ -150,6 +157,9 @@ export class CutsceneSystem {
     // 只推进最内层（嵌套的外层过场此刻阻塞在 effects/对话步骤上，没有计时）
     const r = this.top();
     if (!r || r.finished) return;
+    // M4 第 2 轮：{hurry} 段落里按住空格快进（node 自测的假 Game 没有 input：不加速）
+    const input = (this.game as { input?: { isHeld?(b: 'Space'): boolean } }).input;
+    if (r.hurry && r.hurry > 1 && input?.isHeld?.('Space')) dt *= r.hurry;
     if (r.osd !== null) r.osdT += dt;
     if (r.awaiting !== null && r.prompt) {
       r.promptT += dt;
@@ -366,6 +376,10 @@ export class CutsceneSystem {
     }
     if ('sfx' in st) {
       g.audio.sfx(st.sfx);
+      return 'next';
+    }
+    if ('hurry' in st) {
+      r.hurry = st.hurry;
       return 'next';
     }
     if ('post' in st) {

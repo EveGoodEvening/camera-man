@@ -7,6 +7,7 @@ import type { ItemId, PhotoId } from '../../../data/ids';
 import { F, NPC, OBJ, RP, SEG } from '../../../data/ids';
 import { CREDITS_CAM, EPILOGUE_CAM, NANKE_CAM } from './ending';
 import { CH1_POSE } from './stage';
+import { SMILE_SHOT_CAM, TEMP_SHOT, WONTON_SHOT_CAM } from './cutscenes';
 
 type Flags = Record<string, boolean | number>;
 
@@ -44,7 +45,8 @@ export const SHOTS: readonly ShotDef[] = [
   {
     id: 'shot.r1.fin_booth_lu', label: '寅时·门卫室（取景器，从门外往里看）：陆师傅站在屋里西北角；门口残影点的雪花打着旋，门楣上空支架垂着断线；窗里是遗像前的烛光',
     preset: { flags: PLACED, items: ITEMS_YIN, photos: [...PHOTOS_YIN, 'ph.tape_face'] },
-    view: { player: [-3.0, 20.7], yaw: 280, pitch: 4, mode: 'vf', zoom: 1 }, ui: true,
+    // M4 第 2 轮：往东退 0.7m、朝向偏北一点，“传达室”灯箱整块与陆师傅全身都进画（原来灯箱切成“达室”、陆师傅下半身压在按键行上）
+    view: { player: [-2.3, 20.9], yaw: 276, pitch: 2, mode: 'vf', zoom: 1 }, ui: true,
     keys: [NPC.LU],
   },
   {
@@ -80,9 +82,29 @@ export const SHOTS: readonly ShotDef[] = [
     keys: [NPC.ZHOU, OBJ.R1_BRACKET],
   },
   {
-    id: 'shot.r1.fin_booth_replay', label: '寅时·门口倒带：2023 年 03:12，老周抬头冲门楣说话（脸是一团雪花）',
+    id: 'shot.r1.fin_booth_replay', label: '寅时·门口倒带：2023 年 03:13，老周站在门前抬头冲门楣说话（脸是一团雪花）',
     preset: { flags: TAPE_DONE, items: ITEMS_YIN, photos: [...PHOTOS_YIN, 'ph.tape_face'] },
-    view: { player: [-2.55, 20.25], yaw: 246, pitch: 9, mode: 'vf', zoom: 1, replay: { point: RP.R1_BOOTH, seg: SEG.BOOTH_2023, t: 12 } }, ui: true,
+    // M4 第 2 轮：原机位朝西南看的是灯箱和空支架，t=12 时老周在身后。挪到门岗北边、离残影点 2.2m，朝南看着他（居中）
+    view: { player: [-2.4, 19.0], yaw: 170, pitch: -4, mode: 'vf', zoom: 1, replay: { point: RP.R1_BOOTH, seg: SEG.BOOTH_2023, t: 12 } }, ui: true,
+  },
+  {
+    // M4 第 2 轮验收：结局推近那一拍（机位同 cs.r1.fin_ending 的 CH1_AHEAD、fov 11）——老周实起来，身后是门柱与院墙，不再透出铁门的竖栏
+    id: 'shot.r1.fin_smile', label: '卯时·叫醒以后：伙计这只眼拉近看院门口回头摆手的老周（“这是头一回，他冲着你笑”）',
+    preset: { flags: { ...FED, [F.R1_SOUL_RETURNED]: true }, items: ITEMS_YIN, photos: [...PHOTOS_YIN, 'ph.tape_face', 'ph.zhou_tunnel', 'ph.final'] },
+    temp: { [TEMP_SHOT]: 1 },
+    // （不写 keys：NPC 的锚点按站位算，在椅子上；摆拍把他挪到了院门口）
+    view: { cam: SMILE_SHOT_CAM },
+    brightness: [0.05, 0.5],
+    highlight: false,
+  },
+  {
+    // M4 第 2 轮验收：吃完馄饨的长谈（伙计自己这只眼，老周坐着侧过身来）
+    id: 'shot.r1.fin_wonton_talk', label: '寅时·吃完馄饨：老周坐在椅子上侧过身来，冲着伙计说那一夜（伙计自己的视角）',
+    preset: { flags: VISIBLE, items: ITEMS_YIN, photos: [...PHOTOS_YIN, 'ph.tape_face', 'ph.zhou_tunnel'] },
+    temp: { [TEMP_SHOT]: 2 },
+    view: { cam: WONTON_SHOT_CAM },
+    keys: [NPC.ZHOU],
+    highlight: 0.55,
   },
   {
     id: 'shot.r1.fin_ch1_mao', label: '卯时·CH1 固定机位：门口空了，粉笔叉还在，东边发白',

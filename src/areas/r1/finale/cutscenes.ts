@@ -24,10 +24,13 @@ import { ENDING, NANKE, P13, P14, ZHOU } from './text';
 import { D } from './dialogue';
 import { CH1_POSE, CH2_POSE, LU_AT, PORTRAIT_AT, PORTRAIT_SIZE, ZHOU_CHAIR, ZHOU_DOOR, arcPath, rt } from './stage';
 import type { FinaleRt } from './stage';
-import { CREDIT_PHOTOS, CREDITS_CAM, EPILOGUE_CAM, NANKE_CAM, WORKER_FOOT, WORKER_ON_LADDER, buildCredits, buildEpilogue, buildNanke } from './ending';
+import { paintFinalPrint } from './art';
+import { CREDIT_PHOTOS, CREDITS_CAM, EPILOGUE_CAM, EXCAVATOR_RUN, EXCAVATOR_X0, NANKE_CAM, WORKER_FOOT, WORKER_HEAD, WORKER_ON_LADDER, buildCredits, buildEpilogue, buildNanke } from './ending';
 import type { CreditsStage, EpilogueSet, NankeSet } from './ending';
 
 export const CS = {
+  /** M4 第 2 轮：摆上遗像，1.8 秒的桌面特写（第三人称里自己的摄像头脑袋正好盖在桌面上） */
+  PLACE: 'cs.r1.fin_place',
   /** M4：补上脸，遗像特写 + 陆师傅道别 */
   PORTRAIT: 'cs.r1.fin_portrait',
   /** M4：照妖镜拍中，老周在屋角 CH2 的画面里显形 */
@@ -162,10 +165,33 @@ function eatTick(_g: GameApi, t01: number): void {
   z.joints.neck.rotation.x = 0.12 * k;
 }
 
+/**
+ * 吃馄饨、长谈时玩家站的地方（M4 第 2 轮）：椅子正东、桌子北沿外，面朝椅子上的老周（全身在 CH2 画面里；他侧过身来正好对着你，
+ * 长谈用伙计自己的视角）。离桌子 < 2m（视频线不拔出）；桌子东头与东墙之间那条缝是死角（传过去就走不出来），不站那儿。
+ */
+const WONTON_PLAYER: V3 = [-5.5, 0, 20.85];
+const WONTON_YAW = yawTowards(WONTON_PLAYER, ZHOU_CHAIR);
+/**
+ * 长谈的机位（M4 第 2 轮）：伙计自己这只眼——从镜头往老周那边挪 0.3m（出了头壳：固定机位角色画自己的头），看着侧过身来、抬头看你的老周。
+ * 屋角 CH2 从背后俯拍，他转过来也只见后脑勺；这一段整段用伙计的视角（OSD 是伙计这一路 CH1），吃完那几口仍是 CH2 的远景。
+ * 玩家在过场开头已被传到 WONTON_PLAYER，椅子也不动，所以位姿是固定的（GameApi.player.eye 在过场里是第三人称相机的位置，不能拿来现算）。
+ * 瞄点比他的头低一点：对话框压着画面下半，脸落在画面上半。截图机位 shot.r1.fin_wonton_talk 用同一个位姿。
+ */
+const LENS_Y = 1.62;
+function talkCam(drop: number): CameraPose {
+  const eye = new THREE.Vector3(WONTON_PLAYER[0], LENS_Y, WONTON_PLAYER[2]);
+  const head = new THREE.Vector3(ZHOU_CHAIR[0], 1.12, ZHOU_CHAIR[2]);
+  const p = eye.clone().addScaledVector(head.clone().sub(eye).normalize(), 0.3);
+  return { pos: [p.x, p.y, p.z], target: [head.x, head.y - drop, head.z], fov: 50 };
+}
+/** 过场里（对话框压着下面 40%）瞄得更低，脸落在画面上三分之一；截图机位没有对话框，瞄在脸下方一点 */
+export const WONTON_TALK_CAM: CameraPose = talkCam(0.3);
+
 const WONTON: CutsceneDef = {
   id: CS.WONTON,
   skippable: 'rewatch',
   steps: [
+    { run: g => g.player.teleport(WONTON_PLAYER, WONTON_YAW, 0) },
     ...cam(CH2_POSE),
     { osd: osdLive(2) },
     { run: setZhou({ pose: 'sit', variant: 'slump' }) },
@@ -176,10 +202,20 @@ const WONTON: CutsceneDef = {
     { wait: 0.8 },
     // 三年没吃口热乎的：一勺一勺地吃（右手端着缸子往嘴边送），碗里冒着热气
     { during: 4.2, tick: eatTick },
-    { run: withRt(r => { r.bowlEaten = true; }) },
+    // 吃完了，坐着侧过身来看着你（M4 第 2 轮：原来整段长谈他都背对镜头、也背对你）；切到伙计自己这只眼看他
+    { run: withRt(r => { r.bowlEaten = true; r.zhouTurn = 1; }) },
     { wait: 0.9 },
+    { cam: WONTON_TALK_CAM, blend: 0.8, barrel: BARREL },
+    { osd: osdLive(1) },
     { dialogue: D.ZHOU_WONTON },
-    { run: withRt(r => { r.bowlEaten = null; }) },
+    {
+      run: withRt(r => {
+        r.bowlEaten = null;
+        r.zhouTurn = 0;
+        r.zhouTurnK = 0;
+        if (r.zhou) r.zhou.joints.spine.rotation.y = r.zhou.joints.neck.rotation.y = 0;
+      }),
+    },
     // 对话结束已设 r1.zhou_fed：老周（NpcDef.onPlaced 淡出淡入）挪到门口；这边黑一下切到门楣
     { fade: 'out', dur: 0.7 },
     ...cam(CH1_POSE, { ch1: true }),
@@ -216,6 +252,21 @@ const PORTRAIT: CutsceneDef = {
     { dialogue: D.LU_FAREWELL },
     { cam: 'player', blend: 0.6 },
     { wait: 0.6 },
+  ],
+};
+
+/**
+ * 摆上遗像（M4 第 2 轮）：桌前的默认第三人称机位里，伙计的脑袋正好盖在桌面和遗像上，刚摆上的画看不见。
+ * 给一个 1.8 秒的桌面特写（与补脸同一个机位；陆师傅那句字幕在进过场前已经出了），再回到第三人称。
+ */
+const PLACE: CutsceneDef = {
+  id: CS.PLACE,
+  skippable: 'rewatch',
+  steps: [
+    { cam: PORTRAIT_CAM, blend: 0.5, barrel: BARREL },
+    { wait: 1.3 },
+    { cam: 'player', blend: 0.5 },
+    { wait: 0.5 },
   ],
 };
 
@@ -273,8 +324,17 @@ const SOUL: CutsceneDef = {
       }),
     },
     { wait: 0.1 },
-    // 合影：这是老周一辈子第二张照片，也是伙计第一次进了画（缩略图就从 CH1 这一帧拍）
-    { effects: g => { g.photo.award(PH.FINAL, { thumb: 'render' }); } },
+    // 合影：这是老周一辈子第二张照片，也是伙计第一次进了画（缩略图就从 CH1 这一帧拍）。
+    // M4 第 2 轮：同一帧再裁一张大的留给片尾合影卡（award 里 renderNow() 刚画完，同一任务里画布内容还在；已经有这张照片时不重画，也就不裁）
+    {
+      effects: g => {
+        const fresh = g.photo.record(PH.FINAL) === null;
+        g.photo.award(PH.FINAL, { thumb: 'render' });
+        const r = rt();
+        const cv = r?.renderer?.domElement;
+        if (r && fresh && cv) r.finalPrint = paintFinalPrint(cv);
+      },
+    },
     { sfx: 'shutter' },
     { fade: 'white', dur: 0.12 },
     { wait: 1.4 },
@@ -365,7 +425,13 @@ const DAWN: CutsceneDef = {
 
 // ==================================================================== cs.r1.fin_ending：听见了。走了啊，伙计。
 
-const GATE: V3 = [0.1, 0, 23.35];
+/**
+ * 老周走到院门口回头摆手的停步点。M4 第 2 轮：原来停在门槛前 (0.1,23.35)，推近以后身后正好是往外推开的东扇铁门，
+ * 半透明的他身上透出一排竖栏（像关在铁笼里）；往院里挪到门洞前 1.5m，CH1 推近时他身后是门柱与院墙的砖面。
+ */
+const GATE: V3 = [0.1, 0, 22.5];
+/** 推近那一拍的桶形畸变：长焦下不再加 0.08（竖线被拉弯） */
+const BARREL_TELE = 0.02;
 const OUT: V3 = [0.2, 0, 27.2];
 /** CH1 机位往镜头前方挪 0.3m（出了头壳）：推近那一拍用固定机位角色（画自己的头），机位不能在头里 */
 const CH1_AHEAD: V3 = (() => {
@@ -374,6 +440,14 @@ const CH1_AHEAD: V3 = (() => {
   return [p.x, p.y, p.z];
 })();
 const TUDI_DOOR: V3 = R1.npcSpots.tudiBoothDoor as V3;
+
+/** 尾声 CH1 往前挪出头壳 0.3m、低头看工人抬起来的脸（M4 第 2 轮） */
+const WORKER_LOOK_CAM: CameraPose = (() => {
+  const p = new THREE.Vector3(...EPILOGUE_CAM.pos), d = new THREE.Vector3(...EPILOGUE_CAM.target).sub(p).normalize();
+  p.addScaledVector(d, 0.3);
+  return { pos: [p.x, p.y, p.z], target: [WORKER_HEAD[0], WORKER_HEAD[1] - 0.04, WORKER_HEAD[2]], fov: 50 };
+})();
+
 
 /** 土地（R1-world 的 NPC）领着光走：只挪他的根节点（他不在场/被藏起来就不动），手里的灯笼跟着走。 */
 function tudiWalk(from: V3, to: V3, fade = false): (g: GameApi, t01: number, dt: number, ctx: AreaContext) => void {
@@ -472,11 +546,12 @@ const ENDING_STEPS: CutStep[] = [
   { run: zhouFace(CH1_POSE.pos) },
   { run: setZhou({ pose: 'raise_arm', variant: 'cap' }) },
   // 摆手（在区域 update 里逐帧摆，对话等玩家按键期间也在摆）
-  { run: withRt(r => { r.waving = 1; if (r.zhouSmile) r.zhouSmile.visible = true; }) },
+  // 推近期间他“实”起来（M4 第 2 轮：半透明的魂影透出身后的东西；1 秒缓动，拉回来以后再淡回魂影）
+  { run: withRt(r => { r.waving = 1; r.zhouSolid = 1; if (r.zhouSmile) r.zhouSmile.visible = true; }) },
   // 伙计这只眼睛自己拉近看他（M4：原来他在 6 米外只有一百来像素高，脸上没有五官，“他冲着你笑”没演出来）。
   // 机位往前挪出头壳 0.3m（固定机位角色画自己的头），推完再退回 CH1、换回 ch1 角色
   { sfx: 'zoom_motor' },
-  { cam: { pos: CH1_AHEAD, target: [GATE[0], 1.47, GATE[2]], fov: 11 }, blend: 1.6, barrel: BARREL },
+  { cam: { pos: CH1_AHEAD, target: [GATE[0], 1.5, GATE[2]], fov: 11 }, blend: 1.6, barrel: BARREL_TELE },
   { dialogue: D.ZHOU_BYE },
   { effects: g => { g.say(ENDING.smile, undefined, 6); } },
   { wait: 6 },
@@ -485,7 +560,7 @@ const ENDING_STEPS: CutStep[] = [
   { wait: 1.25 },
   // 拉回来以后就在这个位姿上换回 ch1 角色（不画自己的头；与 CH1 只差镜头前 0.3m，不再跳一下）
   { cam: 'ch1' },
-  { run: withRt(r => { r.waving = 0; if (r.zhouSmile) r.zhouSmile.visible = false; }) },
+  { run: withRt(r => { r.waving = 0; r.zhouSolid = 0; if (r.zhouSmile) r.zhouSmile.visible = false; }) },
   { run: zhouFace(OUT) },
   { run: setZhou({ pose: 'walk', variant: 'cap' }) },
   { during: 3.2, tick: (g, t01, dt) => { WALK_OUT(g, t01, dt); zhouFade(Math.max(0, (t01 - 0.35) / 0.65)); } },
@@ -524,8 +599,13 @@ const ENDING_STEPS: CutStep[] = [
   { fade: 'in', dur: 2.2 },
   { during: 6.5, tick: epilogueTick('drive') },
   { during: 3.8, tick: epilogueTick('climb') },
+  // “嚯，这还录着呢”：他抬头冲镜头，镜头像是被他托着往下一低，看见一张抬起来的脸（M4 第 2 轮：呼应 03:14 老周抬头看镜头；
+  // 原来一直只露个安全帽顶）。机位往镜头前挪出头壳 0.3m（固定机位角色画自己的头）
+  { cam: WORKER_LOOK_CAM, blend: 0.9, barrel: BARREL },
   { effects: g => { g.say(ENDING.worker[0], SPK.WORKER, 4.4); } },
   { during: 4.4, tick: epilogueTick('look') },
+  // 袖子盖上镜头的那一下切回 CH1（擦镜头的袖子从第一帧起就挡在镜头前）
+  ...cam(EPILOGUE_CAM, { ch1: true }),
   { during: 2.6, tick: epilogueTick('wipe') },
   { effects: g => { g.say(ENDING.worker[1], SPK.WORKER, 4); } },
   { during: 4.0, tick: epilogueTick('reach') },
@@ -542,23 +622,30 @@ const ENDING_STEPS: CutStep[] = [
       g.post.pop(POST.morning);
       const c = (r.sets.credits as CreditsStage | undefined) ?? buildCredits(ctx, g);
       c.group.visible = true;
-      // 合影 ph.final 是在 cs.r1.fin_soul 里才拍的：预建的卡片这时补贴缩略图
-      c.refreshThumbs(g);
+      // 合影 ph.final 是在 cs.r1.fin_soul 里才拍的：预建的卡片这时补贴（有那一刻留下的大照片就铺满画面区）
+      c.refreshThumbs(g, r.finalPrint);
       r.sets.credits = c;
       // 黑场与片尾照片里不再是鸡叫和车流（M4）
       ctx.ambience([], 1.5);
     },
   },
   ...cam(CREDITS_CAM, { ch1: true }),
-  // 片尾不是监控画面：不挂 REC（M4：原来写的 '' 不等于 null，片名与五张照片上一直挂着“● REC”）
-  { osd: null },
+  // 黑屏，REC 红点一闪一闪（GDD §2.5 第 8 条、§8.9：伙计还在录——录过的，就算有过）。osd 空文本 = 只挂闪烁的“● REC”
+  // （M4 第 2 轮补回：M4 为了去掉片尾照片上的 REC 把整段设成 null，黑场里一个点也没有了）
+  { osd: '' },
   { fade: 'in', dur: 0.3 },
-  { wait: 2.6 },
-  { title: ENDING.title, dur: 5.2 },
+  { wait: 2.4 },
+  // 片名与片尾照片不是监控画面：不挂 REC
+  { osd: null },
+  { wait: 0.5 },
+  // 片名与开场标题同一写法（不带书名号），副题同开场
+  { title: ENDING.title, sub: ENDING.subtitle, dur: 5.2 },
   { wait: 2.4 },
   // 片尾照片配《送别》（M4：土地出门时起的那一遍约 55 秒，放到这里正好收尾；照片段再从头奏一遍，一直奏到回标题。
   // 引擎若加了带尾奏的长版（docs/requests/r1-finale.md），这里改成不重起）
   { music: 'songbie' },
+  // 片尾照片段允许按住空格加速（×3；不可跳过的语义不变，松开恢复原速。M4 第 2 轮节奏，引擎 CutStep {hurry}）
+  { hurry: 3 },
   // 片尾照片（GDD §8.9）
   ...CREDIT_PHOTOS.map((_, i): CutStep => ({
     during: 4.2,
@@ -593,9 +680,10 @@ function epilogueTick(phase: 'drive' | 'climb' | 'look' | 'wipe' | 'reach'): (g:
   return (_g, t01, dt) => {
     const e = rt()?.sets.epilogue as EpilogueSet | undefined;
     if (!e) return;
-    // 挖掘机一直在院墙外往西开
+    // 挖掘机一直在院墙外往西慢慢挪（M4 第 2 轮：从院门东边 9m 起，一开场就在画面里，整段尾声都在院门上方露着动臂——
+    // CH1 朝东南看，往西开在画面里是往右走；原来从 16m 外开过来、一路开出画，大部分帧里没有它）
     const exT = phase === 'drive' ? t01 * 0.45 : phase === 'climb' ? 0.45 + t01 * 0.2 : phase === 'look' ? 0.65 + t01 * 0.15 : phase === 'wipe' ? 0.8 + t01 * 0.08 : 0.88 + t01 * 0.12;
-    e.excavator.position.x = 16 - exT * 30;
+    e.excavator.position.x = EXCAVATOR_X0 - exT * EXCAVATOR_RUN;
     const w = e.worker;
     if (phase === 'drive') {
       w.root.visible = false;
@@ -619,7 +707,7 @@ function epilogueTick(phase: 'drive' | 'climb' | 'look' | 'wipe' | 'reach'): (g:
     if (phase === 'wipe') {
       w.setPose('raise_arm', 0.2);
       w.update(dt, 0);
-      e.sleeve.visible = t01 > 0.05 && t01 < 0.95;
+      e.sleeve.visible = t01 < 0.95;
       const u = t01 * Math.PI * 4;
       e.sleeve.position.copy(camPos).addScaledVector(fwd, 0.14).addScaledVector(side, Math.sin(u) * 0.09).addScaledVector(up, -0.02 + Math.cos(u * 0.5) * 0.03);
       e.sleeve.lookAt(camPos);
@@ -667,22 +755,51 @@ const NANKE_DEF: CutsceneDef = {
     { osd: OSD_FIXED.nanke },
     { fade: 'in', dur: 2 },
     { wait: 1.5 },
-    { effects: g => { g.say(NANKE.zoomHint, undefined, 6); } },
+    // 变焦的提示只用 await 自带的那一条（M4 第 2 轮：原来另有一条旁白字幕“滚轮：变焦”，屏上同时两份）
     { await: 'zoom', zoom: 6 },
     // 看见小槐安里：八音盒的主动机（M4）
     { music: 'motif_dea' },
     { wait: 2 },
     { say: NANKE.tudi, who: NPC.TUDI, dur: 8.5 },
-    // 题名是字幕“南柯”（GDD §2.6、§11 步骤 58：zoom(6) → 字幕“南柯”，walkthrough 按字幕断言）；M4 拉长到 4.5 秒、前面垫了主动机。
-    // 改成主结局那样的大字卡要先改 GDD 与 walkthrough（见交付说明）
-    { say: NANKE.title, who: '', dur: 4.5 },
+    // 题名“南柯”是与主结局片名同一种大字卡（M4 第 2 轮；原来是一行底部字幕，隐藏结局的收尾显得很轻。待同步 GDD §2.6、§8.9、§11 步骤 58）
+    { title: NANKE.title, dur: 4.5 },
     { wait: 1.5 },
     { fade: 'out', dur: 2 },
     { effects: [E.ending('nanke')] },
   ],
 };
 
-export const CUTSCENES: readonly CutsceneDef[] = [PORTRAIT, ZHOU_APPEAR, WONTON, SOUL, DAWN, ENDING_DEF, NANKE_DEF];
+// ==================================================================== 截图机位的摆拍（M4 第 2 轮验收用；ShotDef.temp 写 fin_shot）
+
+/** 截图：推近那一拍（机位 = CH1_AHEAD、fov 11，同 cs.r1.fin_ending） */
+export const SMILE_SHOT_CAM: CameraPose = { pos: CH1_AHEAD, target: [GATE[0], 1.5, GATE[2]], fov: 11 };
+/** 截图：长谈（同过场的机位，瞄点高一点） */
+export const WONTON_SHOT_CAM: CameraPose = talkCam(0.13);
+/** 区域临时状态 fin_shot：1 = 推近那一拍（老周在院门口摆手、笑、实起来），2 = 长谈（坐着侧过身看东北边站着的人） */
+export const TEMP_SHOT = 'fin_shot';
+/** 每帧在 sync() 之后调用：按 fin_shot 摆好截图的那一刻（正常流程里 fin_shot 永远是 false） */
+export function stageShot(r: FinaleRt): void {
+  const k = r.ctx.getTemp(TEMP_SHOT);
+  if (k !== 1 && k !== 2) return;
+  const z = r.zhou, npc = r.zhouNpc;
+  if (!z || !npc) return;
+  if (k === 1) {
+    npc.root.position.set(...GATE);
+    npc.root.rotation.y = yawToRotY(yawTowards(GATE, CH1_POSE.pos));
+    r.zhouOverride = { pose: 'raise_arm', variant: 'cap' };
+    if (r.waving === 0) r.waving = 1;
+    r.zhouSolid = 1;
+    if (r.zhouSmile) r.zhouSmile.visible = true;
+    return;
+  }
+  r.zhouOverride = { pose: 'sit', variant: 'nocap' };
+  r.zhouTurnAt = WONTON_PLAYER;
+  r.zhouTurn = 1;
+  r.bowl.visible = true;
+  r.bowlEaten = true;
+}
+
+export const CUTSCENES: readonly CutsceneDef[] = [PLACE, PORTRAIT, ZHOU_APPEAR, WONTON, SOUL, DAWN, ENDING_DEF, NANKE_DEF];
 
 /** 陆师傅化成一点光：从他胸口飘出门、往槐树那边去（logic.ts 在道别对话之后调用）。 */
 export function luLightPath(r: FinaleRt): void {

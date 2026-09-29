@@ -17,6 +17,7 @@ import { STRINGS } from '../data/strings';
 import { ITEMS, itemDisplayName } from '../data/items';
 import { isEmptyPhotoId } from '../data/ids';
 import { clickable, evalDyn, h, keyHints, readNumber, setClass, setShown, setText } from './dom';
+import { albumLists } from '../game/modes/album';
 
 export type AlbumEntry = { kind: 'photo'; rec: PhotoRecord } | { kind: 'item'; entry: ItemEntry };
 
@@ -61,6 +62,8 @@ export class AlbumView implements View {
   private readonly pageEl: HTMLElement;
   private readonly grid: HTMLElement;
   private readonly items: HTMLElement;
+  /** M4 第 2 轮：物品栏外框（超出一屏时底部渐隐 + “▼”） */
+  private readonly itemsCol: HTMLElement;
   private readonly detail: HTMLElement;
   private readonly hints: HTMLElement;
   private entries: AlbumEntry[] = [];
@@ -88,11 +91,14 @@ export class AlbumView implements View {
     this.grid = h('div', 'cm-album-grid');
     const side = h('div', 'cm-items');
     this.items = side;
+    this.itemsCol = h('div', 'cm-items-col');
+    this.itemsCol.append(side, h('div', 'cm-items-fade'), h('div', 'cm-items-more', '▼'));
+    side.addEventListener('scroll', () => this.syncScrollHint());
     const foot = h('div', 'cm-album-foot');
     this.detail = h('div', 'cm-album-detail');
     this.hints = h('div');
     foot.append(this.detail, this.hints);
-    sheet.append(head, this.grid, side, foot);
+    sheet.append(head, this.grid, this.itemsCol, foot);
     this.el.append(sheet);
     this.el.addEventListener('mousedown', ev => ev.preventDefault());
     setShown(this.el, false);
@@ -155,14 +161,17 @@ export class AlbumView implements View {
         this.hints.replaceChildren(keyHints([['方向键', '挑选'], ['Enter/左键', '打开'], ['Tab', '合上'], ['J', '巡夜本']]));
       }
       setShown(this.pickFor, sub.kind === 'pick');
+      setClass(this.el, 'cm-picking', sub.kind === 'pick');
     }
+    this.syncScrollHint();
   }
 
   private rebuildIfChanged(force: boolean): void {
-    const st = this.game.state;
-    const photos = st.listPhotos();
-    const items = st.listItems();
-    const key = `${photos.map(p => `${p.id}:${p.thumb ? 1 : 0}`).join(',')}|${items.map(i => `${i.id}:${i.used ? 1 : 0}`).join(',')}`;
+    // M4 第 2 轮：挑选器按 albumLists 排序（与 AlbumMode 同一份：未用的物品、关键照片在前，空镜最后或不列）
+    const arg = this.game.modes.arg<AlbumArg>('mode.album');
+    const { photos, items } = albumLists(this.game, arg);
+    const pickKey = arg && 'pick' in arg ? `${arg.pick.target}:${arg.pick.verb}` : '';
+    const key = `${pickKey}#${photos.map(p => `${p.id}:${p.thumb ? 1 : 0}`).join(',')}|${items.map(i => `${i.id}:${i.used ? 1 : 0}`).join(',')}`;
     if (!force && key === this.listKey) return;
     this.listKey = key;
     this.entries = albumEntries(photos, items);
@@ -171,6 +180,13 @@ export class AlbumView implements View {
     this.page = -1;
     this.buildItems();
     this.render();
+  }
+
+  /** M4 第 2 轮：物品栏超出一屏、还没滚到底时底部渐隐 + “▼”；键盘光标落在物品上时滚到看得见的地方。 */
+  private syncScrollHint(): void {
+    const el = this.items;
+    const more = el.scrollHeight > el.clientHeight + 2 && el.scrollTop + el.clientHeight < el.scrollHeight - 2;
+    setClass(this.itemsCol, 'cm-can-scroll', more);
   }
 
   private buildItems(): void {
@@ -257,6 +273,8 @@ export class AlbumView implements View {
       setClass(el, 'cm-sel', i === this.cursor);
       setClass(el, 'cm-hover', i === this.hover && i !== this.cursor);
     }
+    // 键盘光标在物品栏里：滚到看得见（鼠标悬停时不动）
+    if (this.hover === null && this.cursor >= this.photoCount) this.cells.get(this.cursor)?.scrollIntoView?.({ block: 'nearest' });
     const inItems = focus >= this.photoCount && this.entries.length > this.photoCount;
     setClass(this.tabPhotos, 'cm-on', !inItems);
     setClass(this.tabItems, 'cm-on', inItems);

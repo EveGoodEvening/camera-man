@@ -14,6 +14,7 @@
 // 被 scripts/core.mjs 自动发现时：import 后调用 default export run(h)，h.call(method, ...args) 是 harness 的 API 调用函数（可选）。
 
 import path from 'node:path';
+import { launchChromium } from '../lib/browserSlots.mjs';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -126,7 +127,8 @@ export const KEYMAP_EXPECT = {
     Enter: P({ t: 'confirm' }), Backspace: P({ t: 'erase' }), Escape: P({ t: 'back' }),
   },
   'mode.panel_naming': { ...digitsTo(1, 6, n => ({ t: 'choose', k: n })), Escape: P({ t: 'back' }) },
-  'mode.dialogue': { KeyE: P({ t: 'advance' }), Space: P({ t: 'advance' }), Enter: P({ t: 'advance' }), ...digitsTo(1, 4, n => ({ t: 'choose', k: n })) },
+  // M4 第 2 轮：对话与过场里 Esc = 暂停菜单（附录 A）
+  'mode.dialogue': { KeyE: P({ t: 'advance' }), Space: P({ t: 'advance' }), Enter: P({ t: 'advance' }), ...digitsTo(1, 4, n => ({ t: 'choose', k: n })), Escape: P({ t: 'back' }) },
   'mode.album': {
     ...digitsTo(1, 2, n => ({ t: 'digit', n })),
     ArrowUp: P({ t: 'nav', dx: 0, dy: -1 }), ArrowDown: P({ t: 'nav', dx: 0, dy: 1 }), ArrowLeft: P({ t: 'nav', dx: -1, dy: 0 }), ArrowRight: P({ t: 'nav', dx: 1, dy: 0 }),
@@ -134,7 +136,7 @@ export const KEYMAP_EXPECT = {
   },
   'mode.journal': { Tab: P({ t: 'album' }), KeyJ: P({ t: 'journal' }), Escape: P({ t: 'back' }) },
   'mode.tripod': { KeyE: P({ t: 'interact' }), MouseLeft: P({ t: 'shutter' }) },
-  'mode.cutscene': { MouseLeft: P({ t: 'shutter' }), ...ZOOM, Space: P({ t: 'play' }) },
+  'mode.cutscene': { MouseLeft: P({ t: 'shutter' }), ...ZOOM, Space: P({ t: 'play' }), Escape: P({ t: 'back' }) },
   'mode.pause': { Escape: P({ t: 'back' }) },
 };
 
@@ -627,6 +629,34 @@ export async function nodeTests() {
       g2.reset(2, now);
       for (let i = 0; i < 400; i++) { now += 8.3; g2.sample(now, 8.3); }
       check('dynres：120Hz 保持 1.0 档', g2.current === 2, String(g2.current));
+
+      // M4 第 2 轮：60Hz 垂直同步、每帧工作量 5–9ms 均匀抖动、t = 10s 一次 220ms 卡顿。
+      // 时间戳取 vsync 时刻（rAF 的 timestamp，RenderPipeline.frameStamp）：卡顿降一档后 10 秒内升回 1.0 档。
+      // 反例（只写在这里说明为什么不能那样取）：时间戳取“工作结束时刻”（渲染后的 performance.now()）时，间隔 = 16.7ms ± 相邻两帧
+      // 工作量之差，第 10 百分位被拉低到 ≈ 13ms，“平均 ≤ 1.1 × p10”永远不成立，降档后 90 秒都升不回来。
+      const sim = stampAtVsync => {
+        let seed = 7;
+        const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+        const g3 = new DynResGovernor(2, 3);
+        g3.reset(2, 0);
+        const V = 1000 / 60;
+        let vs = 1000, last = 0, dropAt = null, backAt = null;
+        while (vs < 1000 + 40_000) {
+          const hitch = vs >= 11_000 && vs < 11_000 + V ? 220 : 0;
+          const work = 5 + 4 * rnd() + hitch;
+          const end = vs + work;
+          const ts = stampAtVsync ? vs : end;
+          const r = g3.sample(ts, last ? ts - last : 0);
+          last = ts;
+          if (r !== null && r < 2 && dropAt === null) dropAt = ts;
+          if (r === 2 && dropAt !== null && backAt === null) backAt = ts;
+          vs += Math.ceil((end - vs) / V) * V;
+        }
+        return { dropAt, backAt, level: g3.current };
+      };
+      const raf = sim(true);
+      check('dynres：60Hz + 工作量抖动，按 vsync 时间戳采样：卡顿降档后 10 秒内升回 1.0 档',
+        raf.dropAt !== null && raf.backAt !== null && raf.backAt - raf.dropAt <= 10_000, JSON.stringify(raf));
     }
   } catch (err) {
     check('node 侧测试未抛异常', false, err instanceof Error ? `${err.message}\n${err.stack}` : String(err));
@@ -803,7 +833,7 @@ async function standalonePage(distDir) {
   const { preview } = await import(pathToFileURL(path.join(ROOT, 'node_modules/vite/dist/node/index.js')).href);
   const port = 4191;
   const server = await preview({ root: ROOT, configFile: false, build: { outDir: distDir }, preview: { port, host: '127.0.0.1', strictPort: true }, logLevel: 'error' });
-  const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+  const browser = await launchChromium(chromium, { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] }, 'wp1');
   const errors = [];
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 450 } });

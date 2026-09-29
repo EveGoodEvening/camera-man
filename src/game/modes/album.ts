@@ -19,8 +19,34 @@ import type { ModeCamera, ModeHandler, ModeMove } from '../../core/modes';
 import type { PointerPolicy } from '../../core/input';
 import type { Game } from '../../core/game';
 import type { InteractId, ItemId, ThingId } from '../../data/ids';
+import { isEmptyPhotoId } from '../../data/ids';
 import { ITEMS } from '../../data/items';
-import type { AlbumArg } from '../interaction';
+import type { AlbumArg, OfferTable } from '../interaction';
+import type { ItemEntry, PhotoRecord } from '../state';
+
+/**
+ * 相册/挑选器的两条列表（M4 第 2 轮，AlbumMode 与 WP6 的 AlbumView 共用，格子序号 = [...photos, ...items] 的下标）。
+ * - 浏览：照片按拍摄顺序、物品按获得顺序（原样）。
+ * - 挑选器（出示/使用）：要用的东西放前面——物品“未用的在前、同组里新得的在前”，已用的沉到底；照片“关键照片在前、新拍的在前”，
+ *   空镜收到最后，目标不收任意照片时（只有火盆这种 accept 为空、靠 any 收一切的才收）直接不列空镜。
+ *   原来到了寅时物品 14 项，要放进录像机的带子是最后一项、在折叠线下面，前排全是已用的钥匙串、灯泡；光标还停在一张无关照片上。
+ */
+export function albumLists(game: Pick<Game, 'state'> & { sys?: Partial<Game['sys']> }, arg: AlbumArg | undefined): { photos: PhotoRecord[]; items: ItemEntry[] } {
+  const s = game.state;
+  const photos = [...s.listPhotos()];
+  const items = [...s.listItems()];
+  if (!arg || !('pick' in arg)) return { photos, items };
+  const def = game.sys?.interaction?.get(arg.pick.target);
+  const raw = def?.offers;
+  const offers: OfferTable | undefined = typeof raw === 'function' ? raw(s) : raw;
+  const takesAnything = !!offers?.any && Object.keys(offers.accept).length === 0;
+  const rank = (p: PhotoRecord): number => (isEmptyPhotoId(p.id) ? 2 : p.key ? 0 : 1);
+  const ph = photos
+    .filter(p => takesAnything || !isEmptyPhotoId(p.id))
+    .sort((a, b) => rank(a) - rank(b) || b.seq - a.seq);
+  const it = items.sort((a, b) => (a.used ? 1 : 0) - (b.used ? 1 : 0) || b.order - a.order);
+  return { photos: ph, items: it };
+}
 
 /** 相册每行 4 格（GDD §10.3）。 */
 export const ALBUM_COLS = 4;
@@ -77,10 +103,14 @@ export class AlbumMode implements ModeHandler {
   get kind(): 'browse' | 'menu' | 'pick' {
     return this.sub.kind;
   }
-  /** 格子总列表：照片在前、物品在后。 */
+  /** 格子总列表：照片在前、物品在后（M4 第 2 轮：挑选器里按 albumLists 排序）。 */
   things(): ThingId[] {
-    const s = this.game.state;
-    return [...s.listPhotos().map(p => p.id), ...s.listItems().map(i => i.id)];
+    const l = this.lists();
+    return [...l.photos.map(p => p.id), ...l.items.map(i => i.id)];
+  }
+  /** 当前子状态下的两条列表（albumLists）。 */
+  private lists(): { photos: PhotoRecord[]; items: ItemEntry[] } {
+    return albumLists(this.game, this.game.modes.arg<AlbumArg>('mode.album'));
   }
   /** 把光标移到某件东西上（调试 show/use 的“选中”）；不在列表里返回 false。 */
   selectThing(thing: ThingId): boolean {
@@ -92,9 +122,9 @@ export class AlbumMode implements ModeHandler {
 
   enter(_prev: ModeId | null, arg?: unknown): void {
     const a = arg as AlbumArg | undefined;
-    const s = this.game.state;
-    const photoCount = s.listPhotos().length;
-    const total = photoCount + s.listItems().length;
+    const l = albumLists(this.game, a);
+    const photoCount = l.photos.length;
+    const total = photoCount + l.items.length;
     this.fromMenu = this.carryFromMenu ?? false;
     this.carryFromMenu = null;
     this.menuSel = 0;
@@ -102,9 +132,10 @@ export class AlbumMode implements ModeHandler {
       this.sub = { kind: 'menu', target: a.menu.target };
     } else if (a && 'pick' in a) {
       this.sub = { kind: 'pick', target: a.pick.target, verb: a.pick.verb };
-      // 使用 → 先指到物品；出示 → 先指到照片（没有就指到另一区）
-      const wantItems = a.pick.verb === 'use' ? total > photoCount : photoCount === 0;
-      this.cur = wantItems ? photoCount : 0;
+      // 使用 → 先指到第一件未用的物品（排在物品区最前；一件没有就指到最新的关键照片）；出示 → 先指到最新的关键照片（没有照片就指到物品）
+      const unused = l.items.some(i => !i.used);
+      const wantItems = a.pick.verb === 'use' ? unused || photoCount === 0 : photoCount === 0;
+      this.cur = wantItems && total > photoCount ? photoCount : 0;
     } else {
       this.sub = { kind: 'browse' };
       this.cur = a && 'tab' in a && a.tab === 'items' && total > photoCount ? photoCount : 0;
@@ -130,9 +161,9 @@ export class AlbumMode implements ModeHandler {
   }
 
   private nav(dx: number, dy: number): ActionResult {
-    const s = this.game.state;
-    const photoCount = s.listPhotos().length;
-    const total = photoCount + s.listItems().length;
+    const l = this.lists();
+    const photoCount = l.photos.length;
+    const total = photoCount + l.items.length;
     this.cur = albumNavIndex(this.cur, dx, dy, photoCount, total);
     this.game.audio.sfx('ui_tick');
     return ok({ cursor: this.cur });
@@ -231,7 +262,7 @@ export class AlbumMode implements ModeHandler {
         return confirm();
       case 'album': {
         // Tab：在照片区与物品区之间跳
-        const photoCount = this.game.state.listPhotos().length;
+        const photoCount = this.lists().photos.length;
         const total = this.things().length;
         this.cur = this.cur < photoCount ? (total > photoCount ? photoCount : this.cur) : photoCount > 0 ? 0 : this.cur;
         return ok({ cursor: this.cur });

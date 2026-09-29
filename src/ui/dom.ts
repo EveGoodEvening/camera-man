@@ -32,6 +32,7 @@ export function setClass(el: HTMLElement, cls: string, on: boolean): void {
 }
 
 /** 只在变化时写内联样式属性（transform、width 等每帧更新的值）。 */
+/** prop 是 CSS 属性名（kebab-case，如 'margin-top'；M4 第 2 轮写明：camelCase 的 'marginTop' 在 setProperty 里静默无效）。 */
 export function setStyle(el: HTMLElement, prop: string, value: string): void {
   if (el.style.getPropertyValue(prop) !== value) el.style.setProperty(prop, value);
 }

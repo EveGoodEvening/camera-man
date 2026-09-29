@@ -232,6 +232,8 @@ export class PostPipeline {
   private flashDur = 0;
   private flashSoft = false;
   private flashPeak = 1;
+  /** M4 第 2 轮（WP3 内部）：回放暂停着——VHS 跟踪噪声条停在画面底部（ReplaySystem 每帧写） */
+  vhsPaused = false;
 
   /** WP1 的 Game 构造（M1a 补写）：主场景、当前主相机。 */
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
@@ -333,7 +335,7 @@ export class PostPipeline {
     this.bloom.threshold = p.bloom.threshold;
 
     const rt = this.composer.readBuffer;
-    updateCameraFxUniforms(this.fx, p, { time: this.animTime, w: rt.width, h: rt.height, cssW: this.cssW, cssH: this.cssH });
+    updateCameraFxUniforms(this.fx, p, { time: this.animTime, w: rt.width, h: rt.height, cssW: this.cssW, cssH: this.cssH, vhsPaused: this.vhsPaused });
     this.composer.render(dt);
   }
   /** 画质：low 关 Bloom（M1a 补写；RenderPipeline.setQuality 调用） */

@@ -249,6 +249,9 @@ export function buildShop(ctx: AreaContext, B: Batch, atlasTex: THREE.Texture): 
   B.aabb(darkWood, PARTITION.doorX1, 0, pz + 0.075, SHOP.inEast, 1.0, pz + 0.095);
   ctx.collider.box([(SHOP.inWest + PARTITION.doorX0) / 2, 1.7, pz], [PARTITION.doorX0 - SHOP.inWest, 3.4, 0.15]);
   ctx.collider.box([(PARTITION.doorX1 + SHOP.inEast) / 2, 1.7, pz], [SHOP.inEast - PARTITION.doorX1, 3.4, 0.15]);
+  // 布帘门楣与前厅顶棚的碰撞板（M4 第 2 轮：第三人称相机只躲碰撞体，低头时吊臂会钻进顶棚板里）；顶棚板补到楼上那块碰撞体的底
+  ctx.collider.box([(PARTITION.doorX0 + PARTITION.doorX1) / 2, (PARTITION.doorH + SHOP.studioCeil) / 2, pz], [PARTITION.doorX1 - PARTITION.doorX0, SHOP.studioCeil - PARTITION.doorH, 0.15]);
+  ctx.collider.box([0, (SHOP.hallCeil + FACADE.groundH) / 2, pz / 2], [X1 - X0, FACADE.groundH - SHOP.hallCeil, -pz]);
   // 布帘：蓝底碎花布条（中间分开，挡不住人）
   const curtain = paintedMat(ctx, 128, 256, (g, w, h) => {
     g.fillStyle = '#2c4a78';

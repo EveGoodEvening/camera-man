@@ -81,6 +81,11 @@ export interface InteractableDef {
   menuVerb?: 'show' | 'use';
   /** “色彩辅助”打开时悬停显示的字幕，按状态现算，undefined = 不显示；不进角标 */
   colorHint?: Dyn<string | undefined>;
+  /**
+   * M4 第 2 轮：取景器里准星对着它时，名字画在准星环的哪一侧（缺省按规则：读字框显示时画在上方、倍率 ≥ 3× 时画在右侧，否则下方）。
+   * 'above'：对象自己的编号/字印在它下面（取件格），名字别压住。
+   */
+  vfLabel?: 'below' | 'above' | 'right';
 }
 
 export interface OfferTable {
@@ -357,6 +362,10 @@ export class InteractionSystem {
     const g = this.game;
     const top = g.modes.top;
     if (top !== 'mode.explore' && top !== 'mode.viewfinder') return;
+    // M4 第 2 轮：只在“风平浪静”（没有过场/对话/面板、不在加载与淡入、runner 空闲，持续 0.5 秒，UI.calmFor）时才算第一次聚焦——
+    // 原来新游戏进区域的淡入里（开场过场压栈之前）就聚焦到了桌上的巡夜本，“E：交互”盖在片名卡上，玩家拿到控制时早过期了
+    const ui = g.ui as { calmFor?: number; tutorial?: (t: string) => void; subs?: { toast(t: string, k: 'tutorial'): void } } | undefined;
+    if (typeof ui?.calmFor === 'number' && ui.calmFor < 0.5) return;
     const st = g.state as { seen?: (k: string) => boolean; markSeen?: (k: string) => void };
     if (!st.seen || !st.markSeen) return;
     const key = `tutorial:${STRINGS.tutorial.interact}`;
@@ -365,8 +374,8 @@ export class InteractionSystem {
     if (!e || !e.when(g.state)) return;
     st.markSeen(key);
     // 只出教学条、不发 'feedback'（不是剧情反馈；也不该混进正在进行的交互结果里）
-    const layer = (g.ui as { subs?: { toast(t: string, k: 'tutorial'): void } }).subs;
-    if (layer) layer.toast(STRINGS.tutorial.interact, 'tutorial');
+    if (typeof ui?.tutorial === 'function') ui.tutorial(STRINGS.tutorial.interact);
+    else ui?.subs?.toast(STRINGS.tutorial.interact, 'tutorial');
   }
 
   // ——————————————————————————————— WP4 内部（非冻结签名）
@@ -704,7 +713,12 @@ export class InteractionSystem {
       if (h.stop) break;
       if (!h.e) continue;
       if (!ok.has(h.e)) {
-        if (!farBest && far.has(h.e)) farBest = h.e;
+        // M4 第 2 轮：准星先碰到的是射程外（取景器里 ≤ 4m）的对象——它挡在前面，就显示它的“（走近点）”，不再穿过它去选后面射程内的东西
+        // （门厅里对着 3.2m 外的王奶奶，准星下写的是她身后的“楼梯”，按 E 弹出上楼对话）
+        if (far.has(h.e)) {
+          farBest ??= h.e;
+          break;
+        }
         continue;
       }
       const pr = h.e.def.priority ?? 0;
@@ -714,10 +728,12 @@ export class InteractionSystem {
       this.byRay = true;
       return best.e.id;
     }
-    if (ok.size === 0) {
-      this.farId = farBest?.id ?? null;
+    // 准星对着射程外的对象：优先显示它的“（走近点）”，不再按就近规则选别的
+    if (farBest) {
+      this.farId = farBest.id;
       return null;
     }
+    if (ok.size === 0) return null;
 
     // 2) 就近：射程内、身体前方 ±60°；先比 priority 再比距离，隔着墙（碰撞体挡住眼 → 锚点）的不算（M3，docs/requests/r3.md #5）
     const pos = g.player.position;
@@ -733,7 +749,6 @@ export class InteractionSystem {
     }
     near.sort((x, y) => (y.e.def.priority ?? 0) - (x.e.def.priority ?? 0) || x.d - y.d);
     for (const c of near) if (!this.wallBetween(eye, c.e)) return c.e.id;
-    this.farId = farBest?.id ?? null;
     return null;
   }
 

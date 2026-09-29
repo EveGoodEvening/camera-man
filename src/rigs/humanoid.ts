@@ -318,21 +318,59 @@ export function squircleLoft(rows: readonly LoftRow[], seg = 24, o?: { capTop?: 
   return g;
 }
 
+/** 躯干的放样圈（torsoGeo 与 torsoSurface 共用）。 */
+function torsoRows(s: number, bw: number, bd: number, belly: number): LoftRow[] {
+  const W = s * bw, D = s * bd;
+  return [
+    { y: 0, a: 0.162 * W, b: 0.104 * D + belly * s * 0.6 },
+    { y: 0.08 * s, a: 0.166 * W, b: 0.106 * D + belly * s, front: belly * 2.5 },
+    { y: 0.18 * s, a: 0.176 * W, b: 0.11 * D + belly * s * 0.7, front: 0.05 + belly * 2 },
+    { y: 0.28 * s, a: 0.19 * W, b: 0.117 * D, front: 0.1 },
+    { y: 0.36 * s, a: 0.198 * W, b: 0.118 * D, front: 0.08 },
+    { y: 0.405 * s, a: 0.196 * W, b: 0.112 * D, drop: 0.012 * s },
+    { y: 0.435 * s, a: 0.17 * W, b: 0.094 * D, drop: 0.028 * s },
+  ];
+}
+
 /** 躯干：腰 1.05s → 领口 1.50s；胸口前挺、肩线往两侧塌、顶上收成圆肩再封到领口。 */
 function torsoGeo(s: number, bw: number, bd: number, belly: number): THREE.BufferGeometry {
-  return cached(`torso:${q(s)}:${q(bw)}:${q(bd)}:${q(belly)}`, () => {
-    const W = s * bw, D = s * bd;
-    const rows: LoftRow[] = [
-      { y: 0, a: 0.162 * W, b: 0.104 * D + belly * s * 0.6 },
-      { y: 0.08 * s, a: 0.166 * W, b: 0.106 * D + belly * s, front: belly * 2.5 },
-      { y: 0.18 * s, a: 0.176 * W, b: 0.11 * D + belly * s * 0.7, front: 0.05 + belly * 2 },
-      { y: 0.28 * s, a: 0.19 * W, b: 0.117 * D, front: 0.1 },
-      { y: 0.36 * s, a: 0.198 * W, b: 0.118 * D, front: 0.08 },
-      { y: 0.405 * s, a: 0.196 * W, b: 0.112 * D, drop: 0.012 * s },
-      { y: 0.435 * s, a: 0.17 * W, b: 0.094 * D, drop: 0.028 * s },
-    ];
-    return squircleLoft(rows, 28, { capTop: { y: 0.452 * s, a: 0.072 * s, b: 0.064 * s } });
-  });
+  return cached(`torso:${q(s)}:${q(bw)}:${q(bd)}:${q(belly)}`, () => squircleLoft(torsoRows(s, bw, bd, belly), 28, { capTop: { y: 0.452 * s, a: 0.072 * s, b: 0.064 * s } }));
+}
+
+/** 放样圈上 u（0..1，同 squircleLoft 的 UV：0 = +x、0.25 = 前胸正中）处的点（圈按 y 线性插值）。 */
+function loftPoint(rows: readonly LoftRow[], u: number, y: number, out: THREE.Vector3): THREE.Vector3 {
+  let i = 0;
+  while (i < rows.length - 2 && y > rows[i + 1]!.y) i++;
+  const r0 = rows[i]!, r1 = rows[i + 1]!;
+  const k = Math.min(1, Math.max(0, (y - r0.y) / Math.max(1e-6, r1.y - r0.y)));
+  const a = r0.a + (r1.a - r0.a) * k, b = r0.b + (r1.b - r0.b) * k;
+  const front = (r0.front ?? 0) + ((r1.front ?? 0) - (r0.front ?? 0)) * k;
+  const drop = (r0.drop ?? 0) + ((r1.drop ?? 0) - (r0.drop ?? 0)) * k;
+  const sq = (c: number) => Math.sign(c) * Math.pow(Math.abs(c), 2 / 3);
+  const t = u * Math.PI * 2;
+  const cx = sq(Math.cos(t)), cz = -sq(Math.sin(t));
+  let z = cz * b;
+  if (cz < 0 && front) z *= 1 + front * Math.pow(-cz, 2) * Math.pow(Math.max(0, 1 - Math.abs(cx)), 0.5);
+  return out.set(cx * a, y - drop * cx * cx, z);
+}
+
+/**
+ * M4 第 2 轮（WP2 内部）：躯干表面（spine 局部坐标）上 u、高 y 处的点与外法线、沿圈的切线（配件——中山装的口袋盖、扣子——贴着衣服摆）。
+ * u 与躯干贴图的 u 一致（0 = 右侧 +x，0.25 = 前胸正中，0.5 = 左侧）。
+ */
+export function torsoSurface(h: HumanoidInternal, u: number, y: number): { p: THREE.Vector3; n: THREE.Vector3; t: THREE.Vector3; up: THREE.Vector3 } {
+  const b = BUILD[h.spec.build ?? 'normal'];
+  const rows = torsoRows(h.s, b.w, b.d, b.belly);
+  const p = loftPoint(rows, u, y, new THREE.Vector3());
+  const e = 0.002;
+  const t = loftPoint(rows, u + e, y, new THREE.Vector3()).sub(loftPoint(rows, u - e, y, new THREE.Vector3())).normalize();
+  const up = loftPoint(rows, u, y + 0.01 * h.s, new THREE.Vector3()).sub(loftPoint(rows, u, y - 0.01 * h.s, new THREE.Vector3())).normalize();
+  const n = new THREE.Vector3().crossVectors(t, up).normalize();
+  if (n.dot(new THREE.Vector3(p.x, 0, p.z)) < 0) n.negate();
+  // 切线朝人偶的右手（+x），上方向与法线正交
+  if (t.x < 0) t.negate();
+  up.crossVectors(n, t).normalize();
+  return { p, n, t, up };
 }
 
 /** 骨盆（裤腰到裆）与腰带：同样的圆角方截面。 */
@@ -391,11 +429,119 @@ function bellyTorsoGeo(s: number, bw: number, bulge: number): THREE.BufferGeomet
   });
 }
 
-function headSphereGeo(r: number): THREE.BufferGeometry {
-  return cached(`head:${q(r)}`, () => {
-    const g = new THREE.SphereGeometry(r, 20, 14);
-    g.scale(0.92, 1.12, 1);
-    return g;
+/** 头的半轴（headSphereGeo 的缩放）：x 0.92、y 1.12、z 1（× r）。 */
+const HEAD_AX = [0.92, 1.12, 1] as const;
+
+/**
+ * 人头贴图的发际线（canvas 的 y / H，与 faceTexture 画头发的公式一致）：d = 离正脸的角距离（0 正前、0.25 耳侧、0.5 后脑）。
+ * 头发壳的下沿就沿着它，所以壳边正好压在贴图的发际线上。
+ */
+function hairlineFrac(style: FaceOpts['hairStyle'], d: number, child: boolean): number {
+  if (style === 'bald') return d < 0.17 ? 0 : 0.44 + (d - 0.17) * 0.5;
+  if (style === 'long') return 0.3 + Math.min(1, d / 0.12) * 0.08 + Math.max(0, d - 0.15) * 1.1;
+  return 0.3 + Math.min(1, d / 0.14) * 0.1 + Math.max(0, d - 0.2) * 0.55 + (child ? 0.03 : 0);
+}
+
+/**
+ * M4 第 2 轮：头发壳（经纬网格，头的 1.04–1.07 倍）：short/long 从头顶盖到发际线（前额 → 耳上 → 后脑），long 在赤道以下直直垂到颈后；
+ * bald（土地）只剩后脑到两侧的一圈发环。UV 指向人头贴图里的头发区（带发丝），与头共用一张贴图、一个网格。
+ */
+function hairShellGeo(r: number, style: FaceOpts['hairStyle'], child: boolean): THREE.BufferGeometry | null {
+  if (style === 'none') return null;
+  const nx = 32, ny = 8;
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  // bald：只取后脑那一段（离正脸 d ≥ 0.17），发环上沿在贴图的 0.36H
+  const bald = style === 'bald';
+  const phi0 = bald ? Math.PI * 1.5 + 0.17 * Math.PI * 2 : 0;
+  const phiLen = bald ? Math.PI * 2 * (1 - 0.34) : Math.PI * 2;
+  for (let iy = 0; iy <= ny; iy++) {
+    const v = iy / ny;
+    for (let ix = 0; ix <= nx; ix++) {
+      const phi = phi0 + (ix / nx) * phiLen;
+      const uu = (phi / (Math.PI * 2)) % 1;
+      let d = Math.abs(uu - 0.75);
+      if (d > 0.5) d = 1 - d;
+      const top = bald ? 0.36 : 0;
+      const bot = Math.max(top + 0.02, hairlineFrac(style, d, child) + 0.01);
+      // bald 的发环两端收成尖（贴图里 d = 0.17 处发环宽度接近 0）
+      const frac = top + (bot - top) * v;
+      const theta = frac * Math.PI;
+      // 头顶最厚（发量），往发际线收薄
+      const k = r * (1.085 - 0.05 * v);
+      const st = Math.sin(Math.min(theta, Math.PI / 2)), ct = Math.cos(theta);
+      // 赤道以下（长发）不再往里收：保持赤道的水平半径直直垂下
+      const hx = HEAD_AX[0] * k * (theta > Math.PI / 2 ? 1 : st);
+      const hz = HEAD_AX[2] * k * (theta > Math.PI / 2 ? 1 : st);
+      pos.push(-hx * Math.cos(phi), HEAD_AX[1] * k * ct, hz * Math.sin(phi));
+      // 贴图：u 同头，v 落在头发区（short/long：0.03H–0.26H；bald：0.37H 起的发环）
+      const cy = bald ? 0.37 + (Math.max(0.38, bot - 0.02) - 0.37) * v * 0.8 : 0.03 + 0.23 * v;
+      uv.push(uu, 1 - cy);
+    }
+  }
+  for (let iy = 0; iy < ny; iy++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const a = iy * (nx + 1) + ix + 1, b = iy * (nx + 1) + ix, c = (iy + 1) * (nx + 1) + ix, dd = (iy + 1) * (nx + 1) + ix + 1;
+      // 与 three 的 SphereGeometry 同绕序（外法线）；顶排退化三角形只留一个
+      if (iy !== 0 || bald) idx.push(a, b, dd);
+      idx.push(b, c, dd);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** 把几何的 UV 全部指到贴图上的一点（耳朵、鼻子取脸上的一块纯肤色）。 */
+function flatUv(g: THREE.BufferGeometry, u: number, v: number): THREE.BufferGeometry {
+  const a = g.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < a.count; i++) a.setXY(i, u, v);
+  return g;
+}
+
+/**
+ * M4 第 2 轮：人头 = 头球 + 头发壳 + 两只耳朵 + 鼻子，合成一个网格（共用脸贴图，0 次额外 draw call）。
+ * 原来是一个光滑的蛋：没有头发体积、耳朵、鼻子，1× 取景器 3m 外读成一个空白的蛋。几何在头的局部坐标（球心在原点，正脸 -z）。
+ */
+function humanHeadGeo(r: number, face: FaceOpts): THREE.BufferGeometry {
+  const child = face.age === 'child';
+  return cached(`head2:${q(r)}:${face.hairStyle}:${child ? 1 : 0}`, () => {
+    const list: THREE.BufferGeometry[] = [];
+    const sphere = new THREE.SphereGeometry(r, 20, 14);
+    sphere.scale(HEAD_AX[0], HEAD_AX[1], HEAD_AX[2]);
+    list.push(sphere.toNonIndexed());
+    sphere.dispose();
+    const hair = hairShellGeo(r, face.hairStyle, child);
+    if (hair) {
+      list.push(hair.toNonIndexed());
+      hair.dispose();
+    }
+    // 耳朵：压扁的小球贴在两侧（与贴图上画的耳朵同高、同位置）；长发盖住耳朵就不做
+    if (face.hairStyle !== 'long') {
+      for (const sx of [-1, 1]) {
+        const ear = new THREE.SphereGeometry(0.19 * r, 8, 6);
+        ear.scale(0.4, 1, 0.7);
+        ear.rotateY(sx * 0.35);
+        ear.translate(sx * 0.96 * r, -0.07 * r, 0.05 * r);
+        flatUv(ear, sx > 0 ? 0.5 : 0.004, 0.48);
+        list.push(ear.toNonIndexed());
+        ear.dispose();
+      }
+    }
+    // 鼻子：尖朝上（鼻梁）、底朝前下方的圆锥，侧面能看出鼻梁与鼻头
+    const nose = new THREE.ConeGeometry(0.14 * r, 0.45 * r, 8);
+    nose.scale(0.8, 1, 1);
+    nose.rotateX(0.4);
+    nose.translate(0, -0.2 * r, -1.06 * r);
+    flatUv(nose, 0.72, 0.44);
+    list.push(nose.toNonIndexed());
+    nose.dispose();
+    const merged = mergeGeometries(list, false) ?? list[0]!;
+    for (const g of list) if (g !== merged) g.dispose();
+    merged.computeBoundingSphere();
+    return merged;
   });
 }
 
@@ -408,7 +554,7 @@ const faceCache = new Map<string, THREE.CanvasTexture>();
  * 同参数缓存复用；colorSpace = SRGB。
  */
 export function faceTexture(o: FaceOpts): THREE.CanvasTexture {
-  const key = JSON.stringify(o);
+  const key = `v2${JSON.stringify(o)}`;
   const hit = faceCache.get(key);
   if (hit) return hit;
   const W = 512, H = 256;
@@ -493,25 +639,33 @@ export function faceTexture(o: FaceOpts): THREE.CanvasTexture {
   // 五官
   const eyeY = H * 0.5, eyeDx = W * 0.05;
   const browK = o.brows ?? (o.age === 'young' ? 1 : 0.8);
+  // M4 第 2 轮：五官放大加粗（眼睛 ×1.3、眉眼嘴的笔画 ×1.6）——1× 取景器 3m 外头只有三十来个像素，原来的细线读不出来
+  const EYE = 1.3, STROKE = 1.6;
   for (const sgn of [-1, 1]) {
     const ex = fx + sgn * eyeDx;
     // 眼窝阴影
-    g.fillStyle = 'rgba(80,40,30,0.18)';
+    g.fillStyle = 'rgba(80,40,30,0.24)';
     g.beginPath();
-    g.ellipse(ex, eyeY, W * 0.028, H * 0.03, 0, 0, Math.PI * 2);
+    g.ellipse(ex, eyeY, W * 0.028 * EYE, H * 0.03 * EYE, 0, 0, Math.PI * 2);
     g.fill();
     // 眼白 + 瞳孔
     g.fillStyle = '#e9e2d6';
     g.beginPath();
-    g.ellipse(ex, eyeY, W * 0.017, H * 0.012, 0, 0, Math.PI * 2);
+    g.ellipse(ex, eyeY, W * 0.017 * EYE, H * 0.012 * EYE, 0, 0, Math.PI * 2);
     g.fill();
     g.fillStyle = '#1a120e';
     g.beginPath();
-    g.arc(ex, eyeY, H * 0.011, 0, Math.PI * 2);
+    g.arc(ex, eyeY, H * 0.011 * EYE, 0, Math.PI * 2);
     g.fill();
+    // 上眼皮一道深线（眼睛在暗处也有轮廓）
+    g.strokeStyle = 'rgba(40,20,14,0.75)';
+    g.lineWidth = 1.2 * STROKE;
+    g.beginPath();
+    g.ellipse(ex, eyeY, W * 0.018 * EYE, H * 0.014 * EYE, 0, Math.PI * 1.05, Math.PI * 1.95);
+    g.stroke();
     // 眉
     g.strokeStyle = o.hairStyle === 'bald' ? o.hair : shade(o.hair, 0.8);
-    g.lineWidth = 3 * browK;
+    g.lineWidth = 3 * browK * STROKE;
     g.lineCap = 'round';
     g.beginPath();
     g.moveTo(ex - sgn * W * 0.02, eyeY - H * 0.05);
@@ -520,7 +674,7 @@ export function faceTexture(o: FaceOpts): THREE.CanvasTexture {
     if (o.age === 'old') {
       // 眼袋与鱼尾纹
       g.strokeStyle = 'rgba(70,40,30,0.35)';
-      g.lineWidth = 1;
+      g.lineWidth = 1 * STROKE;
       g.beginPath();
       g.moveTo(ex - W * 0.014, eyeY + H * 0.025);
       g.quadraticCurveTo(ex, eyeY + H * 0.035, ex + W * 0.014, eyeY + H * 0.025);
@@ -533,7 +687,7 @@ export function faceTexture(o: FaceOpts): THREE.CanvasTexture {
   }
   // 鼻子：侧影 + 鼻翼
   g.strokeStyle = 'rgba(90,50,35,0.4)';
-  g.lineWidth = 2;
+  g.lineWidth = 2 * STROKE;
   g.beginPath();
   g.moveTo(fx - W * 0.006, eyeY + H * 0.01);
   g.lineTo(fx - W * 0.01, eyeY + H * 0.1);
@@ -545,16 +699,16 @@ export function faceTexture(o: FaceOpts): THREE.CanvasTexture {
   g.fill();
   // 嘴
   const mouthY = H * 0.665;
-  g.strokeStyle = o.female ? 'rgba(150,60,60,0.8)' : 'rgba(110,50,40,0.8)';
-  g.lineWidth = 2.5;
+  g.strokeStyle = o.female ? 'rgba(150,60,60,0.85)' : 'rgba(110,50,40,0.85)';
+  g.lineWidth = 2.5 * STROKE;
   g.beginPath();
-  g.moveTo(fx - W * 0.022, mouthY);
-  g.quadraticCurveTo(fx, mouthY + (o.age === 'old' ? H * 0.006 : -H * 0.004), fx + W * 0.022, mouthY);
+  g.moveTo(fx - W * 0.025, mouthY);
+  g.quadraticCurveTo(fx, mouthY + (o.age === 'old' ? H * 0.006 : -H * 0.004), fx + W * 0.025, mouthY);
   g.stroke();
   if (o.age === 'old') {
     // 法令纹、抬头纹
     g.strokeStyle = 'rgba(70,40,30,0.3)';
-    g.lineWidth = 1.5;
+    g.lineWidth = 1.5 * STROKE;
     for (const sgn of [-1, 1]) {
       g.beginPath();
       g.moveTo(fx + sgn * W * 0.02, eyeY + H * 0.09);
@@ -638,6 +792,8 @@ export interface HumanoidStyle {
   robeMap?: THREE.Texture;
   /** 菲涅尔描边色（土地在取景器里的土地金描边） */
   rim?: THREE.ColorRepresentation;
+  /** M4 第 2 轮：魂影的调校（陆师傅：多保留原色、魂色偏暖，门岗的绿光里不再是冷灰白） */
+  ghost?: { baseAmt?: number; tint?: THREE.ColorRepresentation };
 }
 
 /**
@@ -762,10 +918,11 @@ export function createHumanoidInternal(spec: HumanoidSpec, face?: FaceOpts, styl
     // 手：手掌 + 拇指，手心朝内（绕 y 转 ±0.25）
     const handRy = side === 'L' ? 0.25 : -0.25;
     if (long) {
-      addPart(`upperArm${side}`, sh, capsuleLimb(armR * 1.22, 0.31 * s), sl);
+      // M4 第 2 轮：上臂、肘球、前臂顶端同粗（armR × 1.15），站着时肘部不再有一道台阶
+      addPart(`upperArm${side}`, sh, capsuleLimb(armR * 1.15, 0.31 * s), sl);
       // 前臂 + 肘部同料小球填缝（坐着屈肘时上臂与前臂之间不露缝），合成一个网格
-      addPart(`forearm${side}`, el, mergedLimb(`fl:${q(s)}:${q(armR)}`, [
-        [limbGeo(armR * 1.12, armR * 1.04, 0.265 * s), 0, 0], [jointBallGeo(armR * 1.12), 0, 0],
+      addPart(`forearm${side}`, el, mergedLimb(`fl2:${q(s)}:${q(armR)}`, [
+        [limbGeo(armR * 1.15, armR * 1.04, 0.265 * s), 0, 0], [jointBallGeo(armR * 1.15), 0, 0],
       ]), sl);
       // 袖口一圈（手从袖口里伸出来，不再和袖子分开悬着）
       addPart(`cuff${side}`, el, bandGeo(armR * 1.07, armR * 1.07, 0.024 * s), spec.robe ? sl : hem()).position.y = -0.244 * s;
@@ -806,8 +963,9 @@ export function createHumanoidInternal(spec: HumanoidSpec, face?: FaceOpts, styl
   if (spec.head === 'human') {
     addPart('neckSkin', J.neck, limbGeo(0.047 * s, 0.05 * s, 0.1 * s), skin).position.y = 0.08 * s;
     const f: FaceOpts = face ?? { skin: `#${new THREE.Color(skinColor).getHexString()}`, hair: '#1e1a17', hairStyle: 'short', age: 'old' };
-    const faceMat = own(newMat({ color: 0xffffff, map: faceTexture(f), roughness: 0.75, tempC: liveTemp }));
-    const head = addPart('head', J.headSlot, headSphereGeo(0.1 * s), faceMat);
+    const faceMat = own(newMat({ color: 0xffffff, map: faceTexture(f), roughness: 0.8, tempC: liveTemp }));
+    // M4 第 2 轮：头球 + 头发壳 + 耳朵 + 鼻子一个网格（humanHeadGeo）
+    const head = addPart('head', J.headSlot, humanHeadGeo(0.1 * s, f), faceMat);
     head.position.set(0, 0.14 * s, -0.005 * s);
     headMesh = head;
   } else if (spec.head === 'weasel') {
@@ -875,19 +1033,27 @@ export function createHumanoidInternal(spec: HumanoidSpec, face?: FaceOpts, styl
     const src = stdMat.get(mesh) as THREE.MeshStandardMaterial | undefined;
     const accessory = extraMeshes.includes(mesh);
     const face = isFace(mesh);
+    // 配件可以自己定实度（中山装的领子、口袋盖是衣服的一部分，不该比身子实）
+    const solidOverride = typeof mesh.userData.ghostSolid === 'number' ? (mesh.userData.ghostSolid as number) : null;
     const colorKey = color === undefined ? '' : new THREE.Color(color).getHexString();
-    const key = `${m}|${colorKey}|${src?.uuid ?? ''}|${accessory ? 'a' : ''}${face ? 'f' : ''}`;
+    const key = `${m}|${colorKey}|${src?.uuid ?? ''}|${accessory ? 'a' : ''}${face ? 'f' : ''}|${solidOverride ?? ''}`;
     let mat = modeMats.get(key);
     if (mat) return mat;
     const map = src?.map ?? null;
+    const tune = m === 'ghost' ? style?.ghost : undefined;
+    // M4 第 2 轮：脸（连头发、耳朵、鼻子）贴图调制 1.0、头部 uSolid 0.35——1× 取景器 3m 外五官仍可读；
+    // 回放：衣服花色 0.85、原色 0.45、不透明度 0.75（原来 0.5/0.22/0.6，被扫描条纹一压看不出谁是谁）
+    const replay = m === 'replay';
     const d: GhostDetail = {
       map,
-      mapAmt: map ? (face ? 0.95 : 0.5) : 0,
+      mapAmt: map ? (face ? 1 : replay ? 0.85 : 0.5) : 0,
       base: src?.color ?? 0xffffff,
-      baseAmt: m === 'ghost' ? (face ? 0.3 : 0.36) : 0.22,
-      solid: accessory ? 1 : 0,
+      baseAmt: replay ? 0.45 : tune?.baseAmt ?? (face ? 0.3 : 0.36),
+      solid: solidOverride ?? (accessory ? 1 : face ? 0.35 : 0),
+      ...(replay ? { opacity: 0.75 } : {}),
     };
-    mat = own(m === 'ghost' ? createGhostMaterial(color ?? PALETTE.GHOST, d) : createReplayMaterial(d));
+    const ghostColor = tune?.tint ?? color ?? PALETTE.GHOST;
+    mat = own(m === 'ghost' ? createGhostMaterial(ghostColor, d) : createReplayMaterial(d));
     // 逐部件的魂影材质写深度，透明队列里由近到远画（core/render.ts ghostAwareTransparentSort）：只剩最外一层壳，不再 X 光透视
     mat.depthWrite = true;
     mat.userData.ghostDepth = true;

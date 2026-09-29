@@ -15,6 +15,9 @@ export const PUZZLES: readonly PuzzleDef[] = [
     available: F.R1_MISSION_GIVEN,
     done: `${F.R2_WANG_FLOOR} >= 5`,
     hints: TEXT.hints.p3,
+    // M4 第 2 轮：阶段 0 = 还没进三号楼、没见着王奶奶（在院子里按 H）→ 先说她在哪栋楼；阶段 1 = 进了楼 → 灯怎么亮（原 p3）
+    stage: s => (s.area !== 'r2' && !s.flag(F.R2_WANG_MET) ? 0 : 1),
+    stageHints: [TEXT.hints.p3Find, TEXT.hints.p3],
     // 空闲闪烁：还没见过面 → 王奶奶；三楼没装灯泡 → 灯座；否则她上面一层的灯（只在玩家所在楼层有角标）
     target: s => {
       if (!s.flag(F.R2_WANG_MET)) return floorOf(s) === 1 ? OBJ.R2_LAMP_1F : NPC.WANG;

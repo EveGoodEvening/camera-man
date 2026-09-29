@@ -252,7 +252,8 @@ export function setupLogic(ctx: AreaContext, rig: R3Rig): void {
     const id = holeId(n);
     const photoText = T.holes[n];
     ctx.interactable({
-      id, label: TEXT.label.hole, at: holeCenter(n), hit: shop.holes[n], proximityFocus: false,
+      // 取件格的编号印在格子下沿：取景器里准星对着时名字画在准星上方，不压住编号（M4 第 2 轮，InteractableDef.vfLabel）
+      id, label: TEXT.label.hole, at: holeCenter(n), hit: shop.holes[n], proximityFocus: false, vfLabel: 'above',
       when: F.R3_LU_DOOR_OPEN, blocked: T.doorLocked,
       onInteract: n === 73
         ? g => {
@@ -267,7 +268,7 @@ export function setupLogic(ctx: AreaContext, rig: R3Rig): void {
   }
   // 整面取件格（打在格子之间的木条上时）
   ctx.interactable({
-    id: OBJ.R3_PICKUP_GRID, label: TEXT.label.grid, at: GRID_CENTER, hit: shop.grid, proximityFocus: false, priority: -1,
+    id: OBJ.R3_PICKUP_GRID, label: TEXT.label.grid, at: GRID_CENTER, hit: shop.grid, proximityFocus: false, priority: -1, vfLabel: 'above',
     onInteract: [E.feedback(T.grid)],
   });
 
@@ -363,20 +364,28 @@ export function setupLogic(ctx: AreaContext, rig: R3Rig): void {
   });
 
   // —— 暗房（M3：引擎的就近聚焦会看墙了，docs/requests/r3.md #5，里面的东西不再靠“人在暗房里”才在场）
+  // 门的拾取取整扇门扇（M4 第 2 轮：原来只取 12cm 的门把手，影棚里对着门打不中，就近规则选中了门背后的守则、按 E 打开了守则）；
+  // 守则后登记，门扇上那张纸仍归守则
   const darkDoorPos = new THREE.Vector3();
   ctx.interactable({
-    id: OBJ.R3_DARKROOM_DOOR, label: TEXT.label.darkroomDoor, at: () => studio.darkDoor.handle.getWorldPosition(darkDoorPos), hit: studio.darkDoor.handle,
+    id: OBJ.R3_DARKROOM_DOOR, label: TEXT.label.darkroomDoor, at: () => studio.darkDoor.handle.getWorldPosition(darkDoorPos), hit: studio.darkDoor.leaf,
     onInteract: [E.feedback(T.darkroomDoor)],
   });
   const rulesPos = new THREE.Vector3();
   ctx.interactable({
-    id: OBJ.R3_DARKROOM_RULES, label: TEXT.label.rules, at: () => studio.rules.getWorldPosition(rulesPos), hit: studio.rules,
+    id: OBJ.R3_DARKROOM_RULES, label: TEXT.label.rules,
+    // 锚点在纸面朝暗房里 5cm（门外的眼 → 锚点隔着门扇）；只能拿准星对准它，不参与就近聚焦（M4 第 2 轮：影棚里对着暗房门按 E 打开了守则）
+    at: () => studio.rules.localToWorld(rulesPos.set(0, 0, 0.05)), hit: studio.rules, proximityFocus: false,
     // 门背后的守则在文档阅读器里读（GameApi.openDoc / E.doc，M3；docs/requests/r3.md #2）
     onInteract: [E.doc(DOC.DARKROOM_RULES)],
   });
-  ctx.interactable({ id: OBJ.R3_LAMP_CORD, label: TEXT.label.lampCord, at: LAMP_CORD, hit: dark.cordKnob, priority: 1, onInteract: g => pullCord(ctx, g) });
+  // 灯绳只能拿准星对准（M4 第 2 轮：原来它也参与就近聚焦、又是 priority 1，第三人称瞄台上的盘子没打中时按 E 拉了灯绳——红灯变白灯，片子瞎了）。
+  // priority 1 留着只管射线：从暗房里头瞄灯绳，射线先穿过晾片绳的拾取代理，灯绳要赢它
+  ctx.interactable({ id: OBJ.R3_LAMP_CORD, label: TEXT.label.lampCord, at: LAMP_CORD, hit: dark.cordKnob, priority: 1, proximityFocus: false, onInteract: g => pullCord(ctx, g) });
+  // 三件容器与水池：hit 组里各有拾取代理（build/darkroom.ts benchProxy），x 按段相接、优先级一样，准星落在哪段台面/后墙上就是哪一件；
+  // 挨得近、次序要紧，不参与就近聚焦（M4 第 2 轮：准星没打中时就近规则会选中旁边那件，按 E 就是“次序错了”）
   const container = (id: InteractId, label: string, at: V3, hit: THREE.Object3D, color: string) => ctx.interactable({
-    id, label, at: [at[0], at[1] + 0.06, at[2]], hit,
+    id, label, at: [at[0], at[1] + 0.06, at[2]], hit, proximityFocus: false,
     // 色彩辅助只在白灯下给颜色（GDD §10.4；红灯下现算为 undefined，不绕过 P7）
     colorHint: s => (safelightOn(s) ? undefined : color),
     onInteract: g => developAt(ctx, g, id),
@@ -384,9 +393,10 @@ export function setupLogic(ctx: AreaContext, rig: R3Rig): void {
   container(OBJ.R3_TRAY_SQUARE, TEXT.label.traySquare, TRAY_SQUARE, dark.tray, TEXT.colorHint.traySquare);
   container(OBJ.R3_BASIN_XI, TEXT.label.basinXi, BASIN_XI, dark.basin, TEXT.colorHint.basinXi);
   container(OBJ.R3_PLATE_CHIPPED, TEXT.label.plateChipped, PLATE_CHIPPED, dark.plate, TEXT.colorHint.plateChipped);
-  // 锚点放在龙头上（第三人称的俯仰限到 -35°，瞄不到池底）
-  ctx.interactable({ id: OBJ.R3_SINK, label: TEXT.label.sink, at: [SINK[0], 1.12, SINK[2] - 0.12], hit: dark.sink, priority: 1, onInteract: g => developAt(ctx, g, OBJ.R3_SINK) });
-  ctx.interactable({ id: OBJ.R3_DRYING_LINE, label: TEXT.label.dryingLine, at: [FILM_X, DRYING.y - 0.05, DRYING.z], hit: dark.lineProxy, onInteract: g => hangFilm(ctx, g) });
+  // 锚点放在龙头上（第三人称的俯仰限到 -35°，瞄不到池底）；与三件容器同一优先级（M4 第 2 轮：priority 1 让瞄方盘时选中了水池）
+  ctx.interactable({ id: OBJ.R3_SINK, label: TEXT.label.sink, at: [SINK[0], 1.12, SINK[2] - 0.12], hit: dark.sink, proximityFocus: false, onInteract: g => developAt(ctx, g, OBJ.R3_SINK) });
+  // 锚点在拾取代理的正中（build/darkroom.ts：代理的下沿 1.83m，不罩住取景器的眼睛）
+  ctx.interactable({ id: OBJ.R3_DRYING_LINE, label: TEXT.label.dryingLine, at: [FILM_X, DRYING.y - 0.02, DRYING.z], hit: dark.lineProxy, onInteract: g => hangFilm(ctx, g) });
   // 底片四格：拍照主体（不作交互物）
   dark.frames.forEach((f, i) => ctx.ref([OBJ.R3_FILM_FRAME1, OBJ.R3_FILM_FRAME2, OBJ.R3_FILM_FRAME3, OBJ.R3_FILM_FRAME4][i]!, f));
 

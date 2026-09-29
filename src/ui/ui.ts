@@ -47,6 +47,10 @@ export type ToastKind = 'feedback' | 'tutorial' | 'page' | 'system' | 'item';
 const LAYER_IDS = ['world-markers', 'hud', 'vf', 'subs', 'panels', 'menus', 'fade'] as const;
 type LayerKey = (typeof LAYER_IDS)[number];
 
+/** M4 第 2 轮：教学条要“风平浪静”持续这么久（游戏秒）才出；物品/新页提示等过场、对话结束这么久再出。 */
+const TUTORIAL_CALM_SEC = 0.5;
+const NEWS_CALM_SEC = 0.2;
+
 /** 取景器外可交互的模式：角标、读字等只在这些栈顶下出现。 */
 const LOOK_TOPS: ReadonlySet<ModeId> = new Set<ModeId>(['mode.viewfinder', 'mode.replay']);
 
@@ -100,6 +104,17 @@ export class UI {
   /** M4：上次写进根节点的布局变量（对话框、字幕、读字框的高度），变了才写 */
   private layoutKey = '';
   private wasVf = false;
+  /**
+   * M4 第 2 轮：挂起显示的提示条。教学条（UI.tutorial）等“风平浪静”（栈顶 explore/viewfinder、没有过场/对话/面板/相册/巡夜本/三脚架/暂停、
+   * 不在加载、runner 空闲或只在等玩家）持续 0.5 秒再出；“得到：……”与“巡夜本上多了一行字”等过场、对话、巡夜本都结束（面板不算）0.2 秒后再出。
+   * 'feedback' 事件与 lastFeedback 照旧在调用时发（状态语义不变），只推迟显示。
+   */
+  private heldTutorials: string[] = [];
+  private heldNews: { text: string; kind: 'page'; onShow?: () => void }[] = [];
+  /** 由延后通道显示出去、还挂在屏幕上的教学条（过场/对话一开始就收回，等下次平静再出） */
+  private liveTutorials = new Set<string>();
+  private calmT = 0;
+  private newsT = 0;
 
   /** WP1 的 Game 构造（M1a 补写）：host 为 #app，UI 在其中建分层 DOM。 */
   constructor(host: HTMLElement, game: Game) {
@@ -168,14 +183,48 @@ export class UI {
     });
   }
 
-  /** 同时发 'feedback' 事件 */
-  toast(text: string, kind: ToastKind = 'feedback'): void {
-    this.subs.toast(text, kind);
+  /**
+   * 同时发 'feedback' 事件。M4 第 2 轮：'page'（巡夜本上多了一行字）在过场/对话/巡夜本期间只排队，结束后再显示；
+   * o.onShow 在真正显示时调用（新页的主动机跟着延后）。
+   */
+  toast(text: string, kind: ToastKind = 'feedback', o?: { onShow?: () => void }): void {
+    if (kind === 'page' && this.newsT < NEWS_CALM_SEC) {
+      if (!this.heldNews.some(n => n.text === text)) this.heldNews.push(o?.onShow ? { text, kind, onShow: o.onShow } : { text, kind });
+    } else {
+      this.subs.toast(text, kind);
+      o?.onShow?.();
+    }
     this.emit(text);
   }
-  subtitle(text: string, who?: SpeakerId | '', dur?: number): void {
-    this.subs.subtitle(text, who, dur);
+  /** o.kind 'hint'（M4 第 2 轮）：H 的提示——新的提示替换屏幕上旧的提示行，不叠两行。 */
+  subtitle(text: string, who?: SpeakerId | '', dur?: number, o?: { kind?: 'hint' }): void {
+    this.subs.subtitle(text, who, dur, o?.kind);
     this.emit(text, who === '' ? undefined : who);
+  }
+  /**
+   * M4 第 2 轮：教学条（E.tutorial、第一次聚焦的“E：交互”、第一次读不清的“滚轮：变焦”）。不发 'feedback'；
+   * 等“风平浪静”0.5 秒再显示（开场过场、对话、面板里弹出的教学条会盖在片名卡上，还没拿到控制就过期了）。
+   */
+  tutorial(text: string): void {
+    if (this.calmT >= TUTORIAL_CALM_SEC && this.heldTutorials.length === 0) this.showTutorial(text);
+    else if (!this.heldTutorials.includes(text)) this.heldTutorials.push(text);
+  }
+  /** M4 第 2 轮：收起一条教学/反馈条（已显示的淡出，还在排队的撤掉）。 */
+  dismiss(text: string): void {
+    this.subs.dismiss(text);
+    this.heldTutorials = this.heldTutorials.filter(t => t !== text);
+    this.liveTutorials.delete(text);
+  }
+  /** M4 第 2 轮（WP6 内部）：换一局（新游戏、读档、调试开局、截图机位）时丢掉还在排队的教学条与新页提示（上一局的不该出现在这一局）。 */
+  resetHeld(): void {
+    this.heldTutorials = [];
+    this.heldNews = [];
+    this.itemQueue = [];
+    this.liveTutorials.clear();
+  }
+  /** M4 第 2 轮（WP6 内部）：“风平浪静”已持续的秒数（教学条的闸门；InteractionSystem 的第一次聚焦教学也看它）。 */
+  get calmFor(): number {
+    return this.calmT;
   }
   /** 截图时隐藏全部 UI */
   setHidden(hidden: boolean): void {
@@ -279,12 +328,16 @@ export class UI {
     setClass(this.root, 'cm-dlg-open', this.vis.get(this.dialogue) === true);
     // 全屏面板开着：反馈条层升到面板之上（M1d；styles.ts 的 .cm-panel-open）
     setClass(this.root, 'cm-panel-open', this.vis.get(this.code) === true || this.vis.get(this.naming) === true);
+    // M4 第 2 轮：录像机/监控台面板（屏幕下方的 deck）开着、没举取景器时，字幕层升到面板之上、字幕排在 deck 上沿之上
+    // （“（录像机不录声音）”原来整条压在 deck 底下）；deck 实际高度每帧写进 --cm-deck-h
+    const deckOpen = (this.vis.get(this.vcr) === true || this.vis.get(this.console) === true) && !inVf;
+    setClass(this.root, 'cm-deck-open', deckOpen);
     setClass(this.root, 'cm-replay-on', this.vis.get(this.replay) === true);
     // M1d：取景器 HUD 显示时字幕让开变焦刻度；面板上叠取景器时拍照缩略图让开右下角的状态行
     setClass(this.root, 'cm-vf-on', this.vis.get(this.vf) === true && this.vis.get(this.replay) !== true);
     setClass(this.root, 'cm-vf-panel', inVf && (stack.includes('mode.panel_vcr') || stack.includes('mode.panel_console')));
-    // M4：举起取景器时，还挂着的“右键：用你的眼睛看”教学条已经没用了，收起（免得和读字框、准星挤在一起）
-    if (inVf && !this.wasVf) this.subs.dismiss(STRINGS.tutorial.viewfinder);
+    // M4：举起取景器时，还挂着的“右键：用你的眼睛看”教学条已经没用了，收起（免得和读字框、准星挤在一起；还在排队的也撤掉）
+    if (inVf && !this.wasVf) this.dismiss(STRINGS.tutorial.viewfinder);
     this.wasVf = inVf;
     // 过场 OSD 从 CutsceneSystem 拉（{osd} 步骤的文本，函数形式已按步骤起算的游戏秒求值；M1c，engine-wp6.md #3）
     if (cutscene) {
@@ -308,18 +361,72 @@ export class UI {
     this.hud.update(dt);
     for (const [v, on] of this.vis) if (on && v !== this.hud) v.update?.(dt);
     // 拍照反馈卡片：过场与标题/菜单下不显示（过场里 award 的照片由过场自己呈现）
-    setClass(this.photoToast.el, 'cm-suppressed', !live || cutscene || menuOn);
+    const photoSuppressed = !live || cutscene || menuOn;
+    setClass(this.photoToast.el, 'cm-suppressed', photoSuppressed);
     this.photoToast.update(dt);
+    // M4 第 2 轮：照片卡片显示时字幕收窄，不压到卡片（卡片在画框右下角）
+    setClass(this.root, 'cm-photo-on', !photoSuppressed && this.photoToast.currentTitle() !== null);
     this.menus.update(dt);
     this.fade.update(dt);
     this.pointerGate.update(dt);
     this.flushForeign();
-    if (this.itemQueue.length) {
-      this.subs.toast(`${STRINGS.hud.gotItems}${this.itemQueue.join('、')}`, 'item');
-      this.itemQueue = [];
-    }
+    this.updateHeld(dt, area && !titleFlow);
     this.subs.update(gdt);
     this.syncLayoutVars();
+  }
+
+  /**
+   * M4 第 2 轮：挂起的教学条、“得到：……”、新页提示的闸门（与时辰字卡 §15.7.1 同一套“风平浪静”判据）。
+   * news（物品、新页）：不在加载、栈上没有过场/对话/巡夜本/暂停、runner 空闲或只在等玩家（面板不拦：密码锁错码给的新页照常显示）。
+   * calm（教学）：再加上栈顶是 explore/viewfinder、栈上没有面板/相册/三脚架。
+   */
+  private updateHeld(dt: number, live: boolean): void {
+    const g = this.game;
+    const stack = g.modes.stack;
+    const top = g.modes.top;
+    // 自测里的迷你 Game 可能没有 effects/isLoading：当作空闲
+    const eff = (g as { effects?: Game['effects'] }).effects;
+    const loading = typeof g.areas?.isLoading === 'function' && g.areas.isLoading();
+    const story = stack.some(m => m === 'mode.cutscene' || m === 'mode.dialogue' || m === 'mode.journal' || m === 'mode.pause');
+    const news = live && !loading && !story && (!eff || !eff.busy || eff.waitingInput);
+    const calm = news && (top === 'mode.explore' || top === 'mode.viewfinder')
+      && !stack.some(m => m === 'mode.tripod' || m === 'mode.album' || m.startsWith('mode.panel_'));
+    this.newsT = news ? this.newsT + dt : 0;
+    this.calmT = calm ? this.calmT + dt : 0;
+    // 过场/对话开始时，刚由延后通道弹出、还剩一秒以上没读完的教学条收回来，等下次平静再出（不算教过）
+    if (story && this.liveTutorials.size > 0) {
+      for (const t of [...this.liveTutorials]) {
+        if (this.subs.takeBack(t, 1)) {
+          if (!this.heldTutorials.includes(t)) this.heldTutorials.unshift(t);
+        }
+        this.liveTutorials.delete(t);
+      }
+    }
+    for (const t of this.liveTutorials) if (!this.subs.isShowing(t)) this.liveTutorials.delete(t);
+    if (this.newsT >= NEWS_CALM_SEC) {
+      if (this.itemQueue.length) {
+        this.subs.toast(`${STRINGS.hud.gotItems}${this.itemQueue.join('、')}`, 'item');
+        this.itemQueue = [];
+      }
+      if (this.heldNews.length) {
+        const list = this.heldNews;
+        this.heldNews = [];
+        for (const n of list) {
+          this.subs.toast(n.text, n.kind);
+          n.onShow?.();
+        }
+      }
+    }
+    if (this.calmT >= TUTORIAL_CALM_SEC && this.heldTutorials.length) {
+      const list = this.heldTutorials;
+      this.heldTutorials = [];
+      for (const t of list) this.showTutorial(t);
+    }
+  }
+
+  private showTutorial(text: string): void {
+    this.subs.toast(text, 'tutorial');
+    this.liveTutorials.add(text);
   }
 
   /**
@@ -332,14 +439,18 @@ export class UI {
     const dlg = dlgOn ? this.dialogue.el.offsetHeight : 0;
     const read = this.vis.get(this.read) === true ? this.read.el.offsetHeight : 0;
     const subs = dlgOn ? this.subs.subsHeight() : 0;
+    // M4 第 2 轮：录像机/监控台的 deck 高度（字幕排在它上沿之上）
+    const deckEl = this.root.classList.contains('cm-deck-open') ? (this.vis.get(this.vcr) ? this.vcr.el : this.console.el).querySelector<HTMLElement>('.cm-deck') : null;
+    const deck = deckEl ? deckEl.offsetHeight : 0;
     setClass(this.root, 'cm-read-on', read > 0);
-    const key = `${dlg}|${subs}|${read}`;
+    const key = `${dlg}|${subs}|${read}|${deck}`;
     if (key === this.layoutKey) return;
     this.layoutKey = key;
     const st = this.root.style;
     if (dlg > 0) st.setProperty('--cm-dlg-h', `${dlg}px`);
     st.setProperty('--cm-subs-h', `${subs}px`);
     if (read > 0) st.setProperty('--cm-read-h', `${read}px`);
+    if (deck > 0) st.setProperty('--cm-deck-h', `${deck}px`);
   }
 
   // ---------------------------------------------------------------- 内部

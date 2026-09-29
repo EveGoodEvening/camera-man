@@ -91,7 +91,11 @@ void main() {
 }
 `;
 
-/** 回放人影：棕绿、半透明，录像带式的横向扫描条纹与偶发的整行闪断。M4：可带贴图亮度（衣服花色、五官）与一点原来的色相。 */
+/**
+ * 回放人影：棕绿、半透明，录像带式的横向扫描条纹与偶发的整行闪断。M4：可带贴图亮度（衣服花色、五官）与一点原来的色相。
+ * M4 第 2 轮：扫描线改成屏幕空间（3 像素一个周期、只压暗 10%）、整行闪断按 6 像素的屏幕行、概率 1.5%，都只压暗颜色、不再调制不透明度——
+ * 原来按世界高度每 4.5cm 一条、亮度差 25%、连 alpha 一起乘，2–3m 外的人读成一摞摞圆盘；录像带质感交给 CameraFxPass 的回放预设。
+ */
 const REPLAY_FRAG = /* glsl */ `
 #include <common>
 #include <fog_pars_fragment>
@@ -114,19 +118,20 @@ void main() {
   float ndv = abs( dot( n, normalize( vViewDir ) ) );
   float fres = pow( 1.0 - clamp( ndv, 0.0, 1.0 ), 1.8 );
   // 伪“受光”：朝上的面亮一点，免得低模人偶完全平
-  float up = 0.55 + 0.45 * clamp( n.y * 0.5 + 0.5, 0.0, 1.0 );
-  float line = 0.75 + 0.25 * step( 0.5, fract( vWorldPos.y * 22.0 + uTime * 1.5 ) );
-  float row = floor( vWorldPos.y * 12.0 );
-  float drop = step( 0.965, fract( sin( row * 91.7 + floor( uTime * 9.0 ) * 13.1 ) * 43758.5453 ) );
+  // M4 第 2 轮：朝下的面不再压到 0.55（膝、肘的填缝球下半圈一道道黑箍）
+  float up = 0.7 + 0.3 * clamp( n.y * 0.5 + 0.5, 0.0, 1.0 );
+  float line = 0.9 + 0.1 * step( 0.5, fract( gl_FragCoord.y / 3.0 ) );
+  float row = floor( gl_FragCoord.y / 6.0 );
+  float drop = step( 0.985, fract( sin( row * 91.7 + floor( uTime * 9.0 ) * 13.1 ) * 43758.5453 ) );
   vec3 tex = uHasMap > 0.5 ? texture2D( uMap, vUv ).rgb : vec3( 1.0 );
   float tl = dot( tex, vec3( 0.3, 0.59, 0.11 ) );
   float detail = uMapAmt * uHasMap;
-  vec3 col = uColor * ( 0.55 * up + 1.1 * fres ) * line;
+  vec3 col = uColor * ( 0.55 * up + 1.4 * fres ) * line * ( 1.0 - 0.3 * drop );
   col *= mix( 1.0, 0.45 + 1.0 * tl, detail );
   vec3 alb = uBase * tex;
   vec3 hue = min( alb / max( dot( alb, vec3( 0.3, 0.59, 0.11 ) ), 0.02 ), vec3( 3.0 ) );
   col = mix( col, hue * dot( col, vec3( 0.3, 0.59, 0.11 ) ), uBaseAmt * ( 1.0 - 0.7 * fres ) );
-  float a = uOpacity * mix( 0.75 + 0.5 * fres, 1.3, uSolid ) * line * ( 1.0 - 0.7 * drop );
+  float a = uOpacity * mix( 0.75 + 0.5 * fres, 1.3, uSolid );
   gl_FragColor = vec4( col, clamp( a, 0.0, 1.0 ) );
   #include <fog_fragment>
 }
@@ -180,6 +185,8 @@ export interface GhostDetail {
   base?: THREE.ColorRepresentation;
   baseAmt?: number;
   solid?: number;
+  /** M4 第 2 轮：不透明度（缺省：魂影 0.5、回放 0.6；人偶的回放部件用 0.75） */
+  opacity?: number;
 }
 
 function makeUniforms(color: THREE.ColorRepresentation, opacity: number, d?: GhostDetail): Record<string, THREE.IUniform<unknown>> {
@@ -213,12 +220,12 @@ function make(name: string, frag: string, color: THREE.ColorRepresentation, opac
 
 /** 半透明冷青魂影，菲涅尔边缘光（GDD §2.7：#8FD3D6，opacity 0.5）。d：M4 的原件细节（缺省 = 纯魂色）。 */
 export function createGhostMaterial(color: THREE.ColorRepresentation = PALETTE.GHOST, d?: GhostDetail): THREE.ShaderMaterial {
-  return make('mat.ghost', GHOST_FRAG, color, 0.5, THREE.NormalBlending, d);
+  return make('mat.ghost', GHOST_FRAG, color, d?.opacity ?? 0.5, THREE.NormalBlending, d);
 }
 
 /** 棕绿半透明回放人影（REPLAY #8A8A5A）。d：M4 的原件细节（缺省 = 纯回放色）。 */
 export function createReplayMaterial(d?: GhostDetail): THREE.ShaderMaterial {
-  return make('mat.replay', REPLAY_FRAG, PALETTE.REPLAY, 0.6, THREE.NormalBlending, d);
+  return make('mat.replay', REPLAY_FRAG, PALETTE.REPLAY, d?.opacity ?? 0.6, THREE.NormalBlending, d);
 }
 
 /** 纸像取景器发光（TUDI_GOLD #E8C35A）。加法混合：叠在门神/灶君纸像上，只加光不遮画。 */

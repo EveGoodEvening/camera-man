@@ -1,7 +1,8 @@
 // owner: R1-world
 // R1 的 8 盏实时灯（GDD §4.1：7 盏 + 半球光；ARCH §10.3 设计强度经 lamp()/designLight()/ctx.hemi()）：
 //   半球光 #1B2233/#0B1020 0.25；钠灯①②（2.2/14，灯头 5.55m，湿地光带）；门灯（立柱上的近灯 0.5/7，r1.gate_lamp_on 后亮）；
-//   CRT 磷绿（0.6/3，灯在屏幕前 0.6m）；土地灯笼（0.9/4，跟着土地走；M4 从 0.5 提上来）；车棚灯（开关①）；公告栏灯（开关②）。
+//   CRT 磷绿（0.6/3，灯在屏幕前 0.6m）；土地灯笼（0.6/5，跟着土地走、挂在灯笼前下方 0.7m 的地上方；M4 第 2 轮从 0.9/4 调下来）；
+//   车棚灯（开关①）；公告栏灯（开关②）。
 // 灯数从进区域起固定，开关只改强度（关灯 = setOn(false)）。槐树彩灯、院外路灯、亮窗、灯箱只用 emissive。
 
 import * as THREE from 'three';
@@ -145,9 +146,10 @@ export function buildLights(ctx: AreaContext, st: Statics, stringAnchors: readon
   ctx.light(board.light!);
   keepGlowOnly(board, st);
   ctx.add(board.group, { occlude: false });
-  // 土地的灯笼：灯挂在 lightsRoot 下，由 NpcDef.lights 每帧跟到灯笼上（土地不在场时强度 0）
-  // M4：0.5 → 0.9（开场的光引导：槐树下那一团红光要从门岗门口看得见）
-  const lantern = designLight('point', LANTERN_RED, 0.9, 4) as THREE.PointLight;
+  // 土地的灯笼：灯挂在 lightsRoot 下，由 NpcDef.lights 每帧跟到灯笼前下方的锚点上（土地不在场时强度 0）
+  // M4 第 2 轮：0.9/4 → 0.6/5，锚点从灯笼挪到它前下方 0.7m（logic.ts registerTudi）：红光铺在他脚前的地上，
+  // 不再从 0.3m 处直打他的脸和胸（原来照度是 look-dev 墙面值的十几倍，取景器里整个人烧成一尊金色人偶）
+  const lantern = designLight('point', LANTERN_RED, 0.6, 5) as THREE.PointLight;
   lantern.name = 'tudiLantern';
   lantern.position.set(...(R1.npcSpots.tudiTree as V3));
   ctx.light(lantern, ctx.lightsRoot);

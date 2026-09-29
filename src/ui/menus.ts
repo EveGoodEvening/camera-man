@@ -34,8 +34,11 @@ const CONTROL_ROWS: readonly (readonly [string, string])[] = [
   ['Tab / J', '相册与物品 / 巡夜本'],
   ['H', '提示（想想土地爷的话）'],
   ['1–4', '对话选项'],
-  ['Esc', '暂停；面板与取景器里是离开'],
+  ['Esc', '暂停（对话与过场中也可）；面板与取景器里是离开'],
 ];
+
+/** M4 第 2 轮：覆盖进度的二次确认窗口（毫秒，真实时间；UI 基础设施，不是玩法计时）。 */
+const CONFIRM_MS = 3000;
 
 /** 菜单项：继续（save.auto）、从寅时重来（save.yin）、新游戏、暂停菜单的继续、设置 */
 export type MenuItem = 'continue' | 'yin' | 'new' | 'resume' | 'settings';
@@ -153,8 +156,12 @@ export class Menus implements View {
     // M4：提示写在标题页自己的一行里（toast 在 #subs 层，被全屏的标题页盖住看不见）；save.yin 损坏同样提示
     const auto = save.read(SAVE.AUTO);
     const yin = save.read(SAVE.YIN);
-    const corrupt = (!auto.ok && auto.reason !== 'missing') || (!yin.ok && yin.reason !== 'missing');
-    setShown(this.titleWarn, corrupt);
+    // M4 第 2 轮：只有 save.yin 坏、save.auto 完好时不说“只能重新开始”（下面明明还有“继续”），单说寅时存档坏了
+    const autoBad = !auto.ok && auto.reason !== 'missing';
+    const yinBad = !yin.ok && yin.reason !== 'missing';
+    setText(this.titleWarn, autoBad ? STRINGS.save.corrupted : STRINGS.save.yinCorrupted);
+    setShown(this.titleWarn, autoBad || yinBad);
+    this.disarm();
     const list: [MenuItem, string][] = [];
     if (auto.ok) list.push(['continue', STRINGS.menu.continue]);
     if (yin.ok) list.push(['yin', STRINGS.menu.fromYin]);
@@ -231,10 +238,12 @@ export class Menus implements View {
     const d = b === 'ArrowUp' ? -1 : 1;
     this.sel = (this.sel + d + this.items.length) % this.items.length;
     this.items.forEach((it, i) => setClass(it.btn, 'cm-sel', i === this.sel));
+    if (this.armed && this.items[this.sel]?.item !== this.armed.item) this.disarm();
   }
 
   update(dt: number): void {
     this.t += dt;
+    if (this.armed && performance.now() - this.armed.at > CONFIRM_MS) this.disarm();
     if (this.page === 'title') {
       // 装饰：标题画面是一路 CH1 监控，从子时起点开始走秒
       const sec = parseTc(SHICHEN_CLOCK.zi.start) + Math.floor(this.t);
@@ -248,6 +257,7 @@ export class Menus implements View {
   // ---------------------------------------------------------------- 内部
 
   private setPage(p: Page): void {
+    if (p !== this.page) this.disarm();
     this.page = p;
     setShown(this.titleScreen, p === 'title');
     setShown(this.pauseScreen, p === 'pause');
@@ -264,6 +274,7 @@ export class Menus implements View {
       b.addEventListener('mouseenter', () => {
         const i = this.items.findIndex(x => x.btn === b);
         if (i >= 0) { this.sel = i; this.items.forEach((it, k) => setClass(it.btn, 'cm-sel', k === i)); }
+        if (this.armed && this.armed.item !== item) this.disarm();
       });
       return b;
     }));
@@ -275,8 +286,44 @@ export class Menus implements View {
     this.items.forEach((it, i) => setClass(it.btn, 'cm-sel', i === 0));
   }
 
+  /**
+   * M4 第 2 轮：有可覆盖的进度（save.auto 读得出）时，“新游戏”“从寅时重来”要按两次——第一次只把按钮换成“再按一次：覆盖当前进度”，
+   * 3 秒内（真实时间，UI 基础设施）对同一项再激活才执行；移到别的项或超时就撤销。不弹确认框（本文件头的约定）。
+   * 只管玩家的点击/回车（activate）；select() 本身（?new=1、调试 API newGame）照旧直接执行。
+   */
+  private armed: { item: MenuItem; at: number; btn: HTMLButtonElement; label: string } | null = null;
+
+  private needsConfirm(item: MenuItem): boolean {
+    if (item !== 'new' && item !== 'yin') return false;
+    if (this.page !== 'title') return false;
+    return this.game.save.read(SAVE.AUTO).ok;
+  }
+
+  private disarm(): void {
+    const a = this.armed;
+    if (!a) return;
+    this.armed = null;
+    a.btn.textContent = a.label;
+    setClass(a.btn, 'cm-warn', false);
+  }
+
   /** 点击/回车触发（用户手势）：“继续”回到需要锁定指针的模式时顺手请求锁定，省掉一次“点击继续”。 */
   private activate(item: MenuItem): void {
+    if (this.needsConfirm(item)) {
+      const now = performance.now();
+      const a = this.armed;
+      if (!a || a.item !== item || now - a.at > CONFIRM_MS) {
+        this.disarm();
+        const entry = this.items.find(x => x.item === item);
+        if (entry) {
+          this.armed = { item, at: now, btn: entry.btn, label: entry.btn.textContent ?? '' };
+          entry.btn.textContent = STRINGS.menu.confirmOverwrite;
+          setClass(entry.btn, 'cm-warn', true);
+          return;
+        }
+      }
+    }
+    this.disarm();
     void this.select(item).then(() => {
       const g = this.game;
       if (item === 'resume' && g.input.lockAvailable && !g.input.pointerLocked && topPointerPolicy(g) === 'lock') g.input.requestPointerLock();

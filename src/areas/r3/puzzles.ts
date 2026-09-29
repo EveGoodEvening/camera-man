@@ -12,8 +12,9 @@ export const PUZZLES: readonly PuzzleDef[] = [
     available: `${F.R1_GATE_UNCHAINED} && ${F.R1_MISSION_GIVEN} && has(${IT.SLIP_0473})`,
     done: F.R3_GOT_ENVELOPE,
     hints: TEXT.hints.p6,
-    // M4：分阶段提示——门开了以后 H 不再说“把单子给他看”（GDD §3.12、§5 P6）
-    stage: s => (s.flag(F.R3_LU_DOOR_OPEN) ? 1 : 0),
+    // M4：分阶段提示——门开了以后 H 不再说“把单子给他看”（GDD §3.12、§5 P6）；
+    // M4 第 2 轮：人还不在老街、门也没开时（P5 之后在 R1 按 H）先说照相馆在哪儿、怎么走（阶段 2）
+    stage: s => (s.flag(F.R3_LU_DOOR_OPEN) ? 1 : s.area !== 'r3' ? 2 : 0),
     stageHints: TEXT.hints.p6Stages,
     target: () => NPC.LU,
   },

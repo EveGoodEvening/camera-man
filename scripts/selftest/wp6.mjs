@@ -9,6 +9,7 @@
 //      用一个最小的假 Game 挂上真实的 UI，只跑 M1B_SELFTESTS（只依赖 M1a 基础件与 WP6 自己的用例，M1b 就必须通过）。
 
 import { fileURLToPath } from 'node:url';
+import { launchChromium } from '../lib/browserSlots.mjs';
 import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -109,7 +110,7 @@ async function standalone() {
   });
   await server.listen();
   const port = server.httpServer.address().port;
-  const browser = await chromium.launch({ args: CHROMIUM_ARGS });
+  const browser = await launchChromium(chromium, { args: CHROMIUM_ARGS }, 'wp6');
   const errors = [];
   let ok = false;
   try {
@@ -137,7 +138,7 @@ async function pageMode() {
   const { chromium } = await import('playwright');
   const port = 4186;
   const server = await preview({ root: ROOT, preview: { port, host: '127.0.0.1', strictPort: true }, logLevel: 'warn' });
-  const browser = await chromium.launch({ args: CHROMIUM_ARGS });
+  const browser = await launchChromium(chromium, { args: CHROMIUM_ARGS }, 'wp6');
   let ok = false;
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 450 } });

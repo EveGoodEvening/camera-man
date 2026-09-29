@@ -615,8 +615,8 @@ async function runApi(h, filter) {
 
 async function runSelftests(h, only) {
   const dir = path.join(HERE, 'selftest');
-  // 各 WP 的 wpN.mjs，加上整合代理的 m1c.mjs（M1c 起）与 m1d.mjs（M1d 起）
-  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => /^(wp\d+|m1[cd])\.mjs$/.test(f)).sort() : [];
+  // 各 WP 的 wpN.mjs，加上整合代理的 m1c.mjs（M1c 起）、m1d.mjs（M1d 起）与 m4.mjs（M4 第 2 轮）
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => /^(wp\d+|m1[cd]|m4)\.mjs$/.test(f)).sort() : [];
   console.log(`== scripts/selftest/*.mjs（${files.join(' ')}）`);
   for (const f of files) {
     const name = f.replace(/\.mjs$/, '');

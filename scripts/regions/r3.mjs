@@ -115,6 +115,19 @@ export const CASES = [
       g.expect.noFlags('r3.got_envelope');
     },
   },
+  {
+    // M4 第 2 轮：P5 之后在 R1 按 H，先说照相馆在哪儿（阶段 2，待同步 GDD §5 P6“分阶段提示”）；进了老街回到阶段 0
+    puzzle: 'P6', name: 'H：还在 R1、门没开 → 提示讲照相馆在东口外的老街', preset: 'r3_start',
+    run: async g => {
+      await g.refresh();
+      g.expect.eq('area', 'r1');
+      const r = await g.call('hint');
+      g.assert(r.puzzle === 'pz.p06_pickup_slip' && r.text.includes('老街'), `R1 里的 P6 提示应讲照相馆在老街：${JSON.stringify(r)}`);
+      await g.call('goto', 'r3', -18, 5);
+      const r2 = await g.call('hint');
+      g.assert(r2.puzzle === 'pz.p06_pickup_slip' && !r2.text.includes('老街'), `进了老街以后回到“认单子”那一阶段：${JSON.stringify(r2)}`);
+    },
+  },
   // ———————————————— P7 暗房
   {
     puzzle: 'P7', name: '拿到信封之前交互双反；守则念全文', preset: 'r3_start', extra: DOOR_OPEN,
@@ -157,6 +170,39 @@ export const CASES = [
       await g.call('wait', 3);
       const red = await redStats(g, path.join(artifactDir('r3'), 'darkroom_red.png'));
       g.assert(red.red > 0.01 && red.nonRed < 0.03, `红灯下画面应压成单红通道：${JSON.stringify(red)}`);
+    },
+  },
+  {
+    // M4 第 2 轮：暗房第三人称——顶棚、吊灯加了碰撞体（低头时相机不再钻到顶棚上面、整屏黑），三件容器与水池有拾取代理，
+    // 灯绳、守则不参与就近聚焦。原来瞄方盘按 E 拉了灯绳（红灯变白灯，片子瞎了），瞄深盆点了方盘（次序错了）
+    puzzle: 'P7', name: '暗房第三人称：瞄哪件容器就聚焦哪件；红灯下对着方盘按 E 是显影，不会拉灯绳', preset: 'r3_start',
+    extra: { ...ENVELOPE, items: [...ENVELOPE.items, 'it.film'] },
+    run: async g => {
+      await g.call('goto', 'r3', -1.9, -12.9);
+      await tryFeedback(g, '红灯亮了', 'interact', 'r3.lamp_cord');
+      const bad = [];
+      for (const [x, z] of [[-1.9, -12.9], [-1.5, -12.6], [-1.1, -12.9]]) {
+        await g.call('goto', 'r3', x, z);
+        for (const id of ['r3.tray_square', 'r3.basin_xi', 'r3.plate_chipped', 'r3.sink']) {
+          const r = await g.call('aimAt', id);
+          if (r.focused !== id) bad.push(`@(${x},${z}) ${id} → ${r.focused}`);
+        }
+      }
+      g.assert(bad.length === 0, `第三人称瞄容器应聚焦到它自己：${bad.join('；')}`);
+      // 真按键：站在方盘跟前瞄它、按 E
+      await g.call('goto', 'r3', -1.9, -12.9);
+      await g.call('aimAt', 'r3.tray_square');
+      await g.page.keyboard.down('KeyE');
+      await g.page.keyboard.up('KeyE');
+      await g.call('frame', 1);
+      await g.call('wait', 1);
+      await g.refresh();
+      g.assert(g.snap.lastFeedback === '片子沉进药水里，你数着秒。' && g.snap.temp?.safelight === true && g.snap.temp?.dev_step === 1,
+        `红灯下对着方盘按 E 应是显影（红灯不灭）：${JSON.stringify({ fb: g.snap.lastFeedback, temp: g.snap.temp })}`);
+      // 影棚里对着暗房门：聚焦的是门，不是门背后的守则
+      await g.call('goto', 'r3', -1.56, -9.97);
+      const door = await g.call('aimAt', 'r3.darkroom_door');
+      g.assert(door.focused === 'r3.darkroom_door', `影棚里瞄暗房门应聚焦门：${JSON.stringify(door)}`);
     },
   },
   // ———————————————— P8 本相

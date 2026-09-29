@@ -28,9 +28,7 @@ export const SHOTS: readonly ShotDef[] = [
     id: 'shot.r1.booth_inside', label: '开场·门卫室里（取景器，东北角望西南）：桌上发光的巡夜本、CRT、录像机、椅子、录像带架、西墙上的注意事项',
     view: { player: [-5.62, 19.2], yaw: 212, pitch: -18, mode: 'vf', zoom: 1 }, ui: true,
     keys: [OBJ.R1_LOG, OBJ.R1_CRT],
-    // M4 整合：屋里只有 CRT 与巡夜本两处光，> 0.8 的像素在 0.50% 上下跳（M4 取景器多了按键提示行、角标少了几个白框）；
-    // 巡夜本的光斑与 CRT 画面都在，阈值放到 0.7
-    highlight: 0.7,
+    // （M4 整合曾因“> 0.8 的像素在 0.50% 上下跳”放到 highlight 0.7；第 2 轮的亮核判据（模糊后 P99.5）实测 0.78，撤掉）
   },
   {
     id: 'shot.r1.drawer_vf', label: 'P2·取景器低头看桌子：抽屉上的四位转轮锁、发光的巡夜本、CRT 与录像机',
@@ -43,8 +41,12 @@ export const SHOTS: readonly ShotDef[] = [
   },
   {
     id: 'shot.r1.tudi_vf', label: 'P1·取景器里的土地（马扎、枣木拐杖、红灯笼，土地金描边）', preset: { flags: LOG_LAMP },
-    view: { player: [2.95, 4.05], yaw: 347, pitch: -17, mode: 'vf', zoom: 1 }, ui: true,
+    // M4 第 2 轮：挪到他正前方（他坐着朝 200°，原机位在他右前 35°，脸侧着），脸、白胡子、灰袍都朝着镜头
+    view: { player: [1.7, 4.3], yaw: 17, pitch: -13, mode: 'vf', zoom: 1 }, ui: true,
     keys: [NPC.TUDI],
+    // M4 第 2 轮：灯笼不再是一团烧白的红光（原来整屏被它淹没），画面里的高光只剩三号楼的一扇亮窗与灯笼芯；夜里树下本来就暗
+    brightness: [0.03, 0.35],
+    highlight: 0.6,
   },
   {
     id: 'shot.r1.replay_gate', label: 'P1·回放 seg.gate_2026 第 7 秒：陆师傅站在门卫室东窗外，抬头看门楣上的空支架（门口是门岗那团雪花）',

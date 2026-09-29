@@ -14,6 +14,10 @@ export const AREA = 'r2';
 export const PRESET_NAMES = ['r2_start', 'r3_start', 'r4_start', 'yin'];
 for (const p of PRESET_NAMES) if (!(p in PRESETS)) throw new Error(`presets.mjs 没有预置 ${p}`);
 
+/** 建国的信：抠开左下瓷砖即在阅读器里翻开（M4 第 2 轮）。 */
+const LETTER_DOC = 'doc.letter_jianguo';
+
+// 步骤 25 抠开铁盒即翻开建国的信（M4 第 2 轮）：walkthrough.mjs 的步骤 25 自己断言这封信并合上（第 2 轮整合同步）。
 export const STEPS = pickSteps(13, 26);
 /**
  * 读档复验点（步骤表里）：22 之后（下一步 goto 进 502、explore 下找已常显的王奶奶）。
@@ -199,6 +203,36 @@ export const CASES = [
       g.assert(r.puzzle === 'pz.p05_kitchen_god' && r.text.includes('眼皮子底下'), `502 提示：${JSON.stringify(r)}`);
     },
   },
+  {
+    puzzle: 'P3', name: 'M4 第 2 轮：院子里（还没见着王奶奶）按 H 先说她在三号楼；进了楼再讲灯', preset: 'r2_start',
+    run: async g => {
+      await g.call('goto', 'r1', -6, 8);
+      let r = await g.call('hint');
+      g.assert(r.puzzle === 'pz.p03_voice_lamps' && r.text.includes('三号楼'), `院子里的 P3 提示应说她在三号楼：${JSON.stringify(r)}`);
+      await g.call('goto', 'r2', 0, 3.0, 1);
+      r = await g.call('hint');
+      g.assert(r.puzzle === 'pz.p03_voice_lamps' && r.text.startsWith('王家婶子只走亮着的道'), `楼里的 P3 提示应讲灯：${JSON.stringify(r)}`);
+    },
+  },
+  {
+    puzzle: 'P4', name: 'M4 第 2 轮：在门口残影点旁进 2018，镜头自己转向门神；不动视角，第 10 秒按快门就拍到 ph.menshen_2018', preset: 'r2_start', extra: escort(5),
+    run: async g => {
+      // 残影点 (-2.0,1.2)：站在它两边 0.8m 上下、面朝它（正站在旋涡上低头时镜头与“指向旋涡上方 0.8m”的夹角到不了 30° 以内，按不了 R）；
+      // (-2.8,1.2) 是 GDD §11 步骤 20 和门神说完话的地方，门在身后
+      for (const [x, z] of [[-2.8, 1.2], [-1.2, 1.4]]) {
+        await g.call('goto', 'r2', x, z, 5);
+        await g.call('vf', true);
+        await g.call('replay', 'rp.r2_door', 'seg.door_2018');
+        await g.call('wait', 0.6);
+        const s = await g.refresh();
+        g.assert(Math.abs(((s.yaw - 270 + 540) % 360) - 180) < 25, `(${x},${z}) 进段后镜头应转向 502 门（yaw≈270）：yaw=${s.yaw}`);
+        await g.call('replaySeek', 10);
+        const r = await g.call('shoot');
+        g.assert(photoOf(r) === 'ph.menshen_2018', `(${x},${z}) 不动视角第 10 秒应拍到 ph.menshen_2018：${JSON.stringify(r)}`);
+        await g.call('replayExit');
+      }
+    },
+  },
   // ———————————————— P5 灶王爷眼皮底下
   {
     puzzle: 'P5', name: '上面、右下两块瓷砖：死砖', preset: 'r2_start', extra: in502(),
@@ -213,6 +247,34 @@ export const CASES = [
       const list = await g.call('listInteractables');
       const tiles = list.filter(x => x.id.startsWith('r2.tile_'));
       g.assert(tiles.length === 3 && tiles.every(t => t.label === '瓷砖' && t.available === true && t.hasOffers === false), `三块瓷砖角标应一致：${JSON.stringify(tiles)}`);
+    },
+  },
+  {
+    puzzle: 'P5', name: 'M4 第 2 轮：灶台跟前第三人称与取景器都聚焦得到低处两块瓷砖；取景器贴近时灶君不靠就近规则抢焦点；灶台照样选得中', preset: 'r2_start', extra: in502(),
+    run: async g => {
+      const bad = [];
+      for (const vf of [false, true]) {
+        for (const [x, z] of [[5.6, -1.5], [5.3, -1.6], [5.0, -1.6]]) {
+          await g.call('goto', 'r2_502', x, z);
+          await g.call('vf', vf);
+          await g.call('wait', 0.1);
+          for (const id of ['r2.tile_left_low', 'r2.tile_right_low']) {
+            const a = await g.call('aimAt', id);
+            if (a.focused !== id) bad.push(`${vf ? 'vf' : 'tp'} (${x},${z}) ${id} → ${a.focused}${a.clamped ? '（俯仰到底）' : ''}`);
+          }
+        }
+      }
+      await g.call('goto', 'r2_502', 5.71, -1.79);
+      await g.call('vf', true);
+      await g.call('wait', 0.1);
+      const a = await g.call('aimAt', 'r2.tile_left_low');
+      if (a.focused !== 'r2.tile_left_low') bad.push(`vf 贴近灶台 (5.71,-1.79) 瞄左下砖 → ${a.focused}`);
+      await g.call('vf', false);
+      await g.call('goto', 'r2_502', 5.6, -1.2);
+      await g.call('wait', 0.1);
+      const st = await g.call('aimAt', 'r2.stove');
+      if (st.focused !== 'r2.stove') bad.push(`tp 瞄灶台 → ${st.focused}`);
+      g.assert(bad.length === 0, bad.join('；'));
     },
   },
   {
@@ -244,12 +306,14 @@ export const CASES = [
     },
   },
   {
-    puzzle: 'P5', name: 'M4：抠开左下瓷砖有一句说出铁盒里的三样；把信给王奶奶，读信近景念出信里的原句（最后一句“就是皮擀不圆”），过场开场把伙计挪到厨房北头',
+    puzzle: 'P5', name: 'M4：抠开左下瓷砖即翻开建国的信、合上后一句说出铁盒里的三样；把信给王奶奶，读信近景念出信里的原句（最后一句“就是皮擀不圆”），临别时伙计被挪到她跟前',
     preset: 'r2_start', extra: in502(),
     run: async g => {
       await g.call('goto', 'r2_502', 5.6, -1.5);
       await g.call('vf', true);
-      await tryFeedback(g, '牡丹饼干铁盒：一封信、一张票根、一副老花镜。', 'interact', 'r2.tile_left_low');
+      // M4 第 2 轮：拾取即在阅读器里翻开建国的信（门神、电梯、“写包”几处伏笔），合上后才说盒子里的三样
+      await readDocs(g, 'r2.tile_left_low', [[LETTER_DOC, '您一回也没坐上']]);
+      await g.check.feedback('牡丹饼干铁盒：一封信、一张票根、一副老花镜。');
       g.expect.flags('r2.tin_opened');
       g.expect.has('it.letter', 'it.train_ticket', 'it.glasses');
       // 读信近景念的两句（text.ts TEXT.letterRead）都是信里的原句
@@ -265,8 +329,9 @@ export const CASES = [
       await g.refresh();
       g.expect.flags('r2.wang_done', 'r2.ability_ir');
       g.expect.has('it.wonton', 'it.money');
+      // M4 第 2 轮：临别那几句伙计被挪到她跟前 (6.0,-1.55)，过场完了就站在那儿
       const p = g.snap.pos;
-      g.assert(Array.isArray(p) && Math.abs(p[0] - 6.0) < 0.2 && Math.abs(p[2] + 3.55) < 0.2, `过场后伙计应在厨房北头 (6.0,-3.55)：${JSON.stringify(p)}`);
+      g.assert(Array.isArray(p) && Math.abs(p[0] - 6.0) < 0.2 && Math.abs(p[2] + 1.55) < 0.2, `过场后伙计应在她跟前 (6.0,-1.55)：${JSON.stringify(p)}`);
     },
   },
   {
@@ -351,6 +416,32 @@ export const CASES = [
       await g.call('dlg');
       await g.refresh();
       g.expect.eq('floor', 1);
+    },
+  },
+  {
+    // M4 第 2 轮整合（节奏）：王奶奶的事了了以后，三楼及以上多一个“下到一楼”，一次换层回门厅；之前没有
+    name: '楼梯井：r2.wang_done 以后五楼多一个“下到一楼”，选了直接回一楼；没做完时没有', preset: 'r2_start',
+    extra: { flags: { ...escort(5).flags, 'r2.wang_done': true } },
+    run: async g => {
+      await g.call('goto', 'r2', 0, 1.8, 5);
+      await g.call('interact', 'r2.stairs');
+      const d = await g.call('dlg');
+      g.assert(d.at === 'choice' && JSON.stringify(d.options) === JSON.stringify(['下楼', '下到一楼', '（算了）']), `五楼（王奶奶的事了了）选项应是 下楼/下到一楼/（算了）：${JSON.stringify(d)}`);
+      await g.call('choose', 2);
+      await g.call('dlg');
+      await g.refresh();
+      g.expect.eq('floor', 1);
+    },
+  },
+  {
+    name: '楼梯井：王奶奶的事没了之前五楼没有“下到一楼”', preset: 'r2_start', extra: escort(5),
+    run: async g => {
+      await g.call('goto', 'r2', 0, 1.8, 5);
+      await g.call('interact', 'r2.stairs');
+      const d = await g.call('dlg');
+      g.assert(d.at === 'choice' && JSON.stringify(d.options) === JSON.stringify(['下楼', '（算了）']), `五楼（没做完）选项应是 下楼/（算了）：${JSON.stringify(d)}`);
+      await g.call('choose', 2);
+      await g.call('dlg');
     },
   },
   {

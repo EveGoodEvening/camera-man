@@ -326,6 +326,23 @@ export interface FinaleRt {
   anims: ((dt: number) => boolean)[];
   /** 结局里老周冲你摆手：>0 时在 sync() 里逐帧摆右臂 */
   waving: number;
+  /**
+   * M4 第 2 轮：结局推近那一拍老周“实”起来（1 = 魂影 uSolid 0.8、不透明，身后的院门铁栏不再透过他的脸），0 = 原样；
+   * zhouSolidK 是 sync() 里 1 秒缓动的当前值
+   */
+  zhouSolid: number;
+  zhouSolidK: number;
+  /** M4 第 2 轮：吃完馄饨以后老周坐在椅子上侧过身来、抬头看着你（1 = 转过来），zhouTurnK 是缓动的当前值 */
+  zhouTurn: number;
+  zhouTurnK: number;
+  /** 侧过身看的点（null = 玩家的位置；截图机位里玩家藏在别处，用它） */
+  zhouTurnAt: V3 | null;
+  /** 笑脸贴片显示中、人偶自己的五官已收起 */
+  smileMasked: boolean;
+  /** M4 第 2 轮：合影成功那一刻按 CH1 位姿留下的一张大“照片”（片尾合影卡铺满画面区用；没拍到为 null） */
+  finalPrint: HTMLCanvasElement | null;
+  /** 渲染器（光点的 onBeforeRender 顺手记下；合影那一刻从它的画布裁大照片用） */
+  renderer: THREE.WebGLRenderer | null;
   /** 粉笔叉呼吸的计时 */
   chalkT: number;
   /** 交互锚点（按 R1-world 的实际网格算出来的，build 时填） */
@@ -597,11 +614,55 @@ export function createRt(ctx: AreaContext): FinaleRt {
     mount: buildMount(ctx), motes, env: new EnvGrade(ctx), baked: null, tripodPrev: 'off', antT: 0, antMoteT: 0, howlT: 0, sets: {}, anims: [],
     anchors: { vcr: VCR_AT, jack: JACK_AT, bracket: R1.bracket as V3, anthill: ANTHILL_AT }, waving: 0,
     procession, zhouReveal: null, zhouPanelFade: 0, zhouSmile: null, chalkT: 0,
+    zhouSolid: 0, zhouSolidK: 0, zhouTurn: 0, zhouTurnK: 0, zhouTurnAt: null, smileMasked: false, finalPrint: null, renderer: null,
+  };
+  // 区域 API 不给渲染器：光点每帧都画（frustumCulled = false），在它的 onBeforeRender 里记下来
+  const rtNow = current;
+  motes.points.onBeforeRender = renderer => {
+    rtNow.renderer = renderer;
   };
   return current;
 }
 
 // ==================================================================== 每帧按 flags 同步外观
+
+/**
+ * 结局推近那一拍（M4 第 2 轮）：老周魂影的每个部件 uSolid → 0.8、uOpacity → 1（k = 0..1；0 还原成原值）。
+ * 魂影片元的 a = uOpacity × mix(…, 1.55 + …, uSolid)：两者一起提上去才是不透明的（只 setOpacity(1) 是基础不透明度 0.5，铁栏仍透得过来）。
+ * 颜色不变（仍是魂影青与边缘光）。原值记在材质的 userData 上，k 回到 0 时删掉。
+ */
+function applyZhouSolid(r: FinaleRt, k: number): void {
+  if (!r.zhou) return;
+  r.zhou.root.traverse(o => {
+    const mesh = o as THREE.Mesh;
+    const m = mesh.material as THREE.ShaderMaterial | undefined;
+    if (!mesh.isMesh || !m || Array.isArray(m) || !m.isShaderMaterial) return;
+    const uS = m.uniforms?.uSolid, uO = m.uniforms?.uOpacity;
+    if (!uS || !uO) return;
+    const ud = m.userData as { finSolid?: [number, number] };
+    ud.finSolid ??= [uS.value as number, uO.value as number];
+    const [s0, o0] = ud.finSolid;
+    uS.value = s0 + (Math.max(s0, 0.8) - s0) * k;
+    uO.value = o0 + (Math.max(o0, 1) - o0) * k;
+    if (k <= 0) delete ud.finSolid;
+  });
+}
+
+/** 老周头上人偶自己的五官贴图（魂影材质的 uHasMap）：on = 收起（笑脸贴片接管），off = 还原。 */
+function maskZhouFace(r: FinaleRt, on: boolean): void {
+  const head = r.zhou?.root.getObjectByName('head') as THREE.Mesh | undefined;
+  const m = head?.material as THREE.ShaderMaterial | undefined;
+  const u = m && !Array.isArray(m) && m.isShaderMaterial ? m.uniforms?.uHasMap : undefined;
+  if (!m || !u) return;
+  const ud = m.userData as { finHasMap?: number };
+  if (on) {
+    ud.finHasMap ??= u.value as number;
+    u.value = 0;
+  } else if (ud.finHasMap !== undefined) {
+    u.value = ud.finHasMap;
+    delete ud.finHasMap;
+  }
+}
 
 /** 老周此刻该有的姿势与造型（没有过场接管时）。 */
 function zhouLookFor(s: StateView): ZhouLook {
@@ -716,6 +777,34 @@ export function sync(r: FinaleRt, dt: number): void {
   if (r.waving > 0 && r.zhou) {
     r.waving += dt;
     r.zhou.joints.shoulderR.rotation.z = 0.12 + Math.sin(r.waving * 7) * 0.35;
+  }
+  // 结局推近：笑脸贴片显示期间把人偶自己的五官贴图收起来（两张脸不叠在一起，M4 第 2 轮）
+  const smiling = r.zhouSmile?.visible === true;
+  if (smiling !== r.smileMasked) {
+    r.smileMasked = smiling;
+    maskZhouFace(r, smiling);
+  }
+  // 结局推近：魂影实起来（1 秒缓动）
+  if (r.zhouSolidK !== r.zhouSolid) {
+    r.zhouSolidK = dt === 0 ? r.zhouSolid : r.zhouSolid > r.zhouSolidK ? Math.min(r.zhouSolid, r.zhouSolidK + dt / 1.0) : Math.max(r.zhouSolid, r.zhouSolidK - dt / 1.0);
+    applyZhouSolid(r, r.zhouSolidK);
+  }
+  // 吃完馄饨：坐着侧过身来看你（腰转一半、脖子转一半，最多 80°；0.8 秒缓动）
+  if (r.zhouTurnK !== r.zhouTurn) {
+    r.zhouTurnK = dt === 0 ? r.zhouTurn : r.zhouTurn > r.zhouTurnK ? Math.min(r.zhouTurn, r.zhouTurnK + dt / 0.8) : Math.max(r.zhouTurn, r.zhouTurnK - dt / 0.8);
+  }
+  if (r.zhouTurnK > 0 && r.zhou && r.zhouNpc) {
+    const p = r.zhouTurnAt ? { x: r.zhouTurnAt[0], z: r.zhouTurnAt[2] } : g.player.position;
+    const root = r.zhouNpc.root;
+    const want = Math.atan2(-(p.x - root.position.x), -(p.z - root.position.z));
+    let d = want - root.rotation.y;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    d = Math.max(-1.4, Math.min(1.4, d));
+    const e = r.zhouTurnK * r.zhouTurnK * (3 - 2 * r.zhouTurnK);
+    r.zhou.joints.spine.rotation.y = d * 0.45 * e;
+    r.zhou.joints.neck.rotation.y = d * 0.55 * e;
+    // 抬起头看着站着的伙计（姿势每帧由 rig.update 重设，这里叠加；正 = 抬头，同 look_up）
+    r.zhou.joints.neck.rotation.x += 0.42 * e;
   }
   r.motes.update(dt);
   r.procession.update(dt);

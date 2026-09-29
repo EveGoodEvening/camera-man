@@ -284,16 +284,29 @@ export function buildApartment(ctx: AreaContext): Apt {
   b.wall(tiles, [C.x0 - 0.004, C.z0], [C.x0 - 0.004, C.z1], 0.15, C.h, { floorY: 0.15, uMeters: 0.8, vMeters: 0.8 });
   // 灶台上方的东墙贴一截瓷砖（列从 z=-2.4 起、行从 y=0.75 起，灶君正下方那块正好在格子里）
   b.wall(tiles, [C.x1 - 0.004, C.z0], [C.x1 - 0.004, C.z1], C.h, 1.35, { floorY: 0.75, uMeters: 0.8, vMeters: 0.8, uOffset: 0.125 });
-  const tile = (p: readonly [number, number, number], name: string) => {
+  // 灶台正面低处的两块（离地 0.25m）各挂一个不绘制的拾取代理盒（M4 第 2 轮）：贴着灶台正面，往西伸 0.14m、从 0.15m 一直到 1.32m 高、
+  // 宽 0.26m。厨房只有 2.5m 宽：第三人称俯仰到底（-35°）时中心射线在灶台正面前头还有 0.9–1.3m 高、取景器凑太近俯仰卡在 -60° 时
+  // 落在砖前的地上，都够不到砖本身；代理盒让这两种射线先打到它（锚点仍在砖面上，交互物的 hit 是砖，代理是它的子节点）。
+  // 两块砖在 z=-2.0 与 -1.0，代理盒各占 ±0.13m：中间 z=-1.5 一带（煤气灶、灶君、上面那块砖）的射线不受影响。
+  const PROXY_D = 0.14, PROXY_Y0 = 0.15, PROXY_Y1 = 1.32;
+  const lowProxy = new THREE.BoxGeometry(PROXY_D, PROXY_Y1 - PROXY_Y0, 0.26);
+  const tile = (p: readonly [number, number, number], name: string, proxy: boolean) => {
     const t = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.19, 0.19), newTile);
     t.position.set(p[0] - 0.01, p[1], p[2]);
     t.name = name;
+    if (proxy) {
+      const hp = new THREE.Mesh(lowProxy, MATERIALS.hitProxy());
+      hp.name = `${name}Hit`;
+      // 砖面（西面）在局部 x = -0.006；盒子底 PROXY_Y0、顶 PROXY_Y1（世界高度）
+      hp.position.set(-0.006 - PROXY_D / 2, (PROXY_Y0 + PROXY_Y1) / 2 - p[1], 0);
+      t.add(hp);
+    }
     grp.add(t);
     return t;
   };
-  const tl = tile(K.tileLeftLow, 'tileLeftLow');
-  const tr = tile(K.tileRightLow, 'tileRightLow');
-  const tt = tile([K.tileTop[0] + 0.045, K.tileTop[1], K.tileTop[2]], 'tileTop');
+  const tl = tile(K.tileLeftLow, 'tileLeftLow', true);
+  const tr = tile(K.tileRightLow, 'tileRightLow', true);
+  const tt = tile([K.tileTop[0] + 0.045, K.tileTop[1], K.tileTop[2]], 'tileTop', false);
   // 抠开之后的砖洞与拿出来的铁盒
   const hole = new THREE.Group();
   hole.name = 'tileHole';
@@ -322,7 +335,9 @@ export function buildApartment(ctx: AreaContext): Apt {
   const stove = PROPS.stove();
   stove.position.set(7.02, C.h + 0.035, cz);
   stove.rotation.y = Math.PI / 2;
-  grp.add(stove);
+  // 煤气灶、灶火、那锅馄饨都挂在灶台组下（M4 第 2 轮）：它们是 r2.stove 拾取网格的一部分——原来是挡射线的布景，
+  // 准星对着煤气灶反而选不中“灶台”
+  counter.add(stove);
   const fire = new THREE.Group();
   fire.name = 'stoveFire';
   const flameMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.STOVE).multiplyScalar(4), transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending });
@@ -338,7 +353,7 @@ export function buildApartment(ctx: AreaContext): Apt {
     }
   }
   fire.visible = false;
-  grp.add(fire);
+  counter.add(fire);
   // 煮好的馄饨：一口铝锅冒着热气、一只蓝边碗
   const cooked = new THREE.Group();
   cooked.name = 'wonton';
@@ -366,7 +381,7 @@ export function buildApartment(ctx: AreaContext): Apt {
     cooked.add(st);
   }
   cooked.visible = false;
-  grp.add(cooked);
+  counter.add(cooked);
 
   // 灶君纸像（东墙，朝西）+ 对联 + 取景器里的描金与眼珠（yin 层）
   const zaojun = new THREE.Group();
@@ -489,6 +504,9 @@ export function aptColliders(ctx: AreaContext): void {
   const K = L502;
   const T = 0.2;
   c.floor(-1.8, -7.1, 7.6, 0.3, 0);
+  // 顶棚（M4 第 2 轮）：第三人称相机只躲碰撞体——没有这块板，低头时相机升到顶棚上面（离地 3.3m），整套房子像从天花板上
+  // 往下看的模型，准星也够不着灶台正面低处的瓷砖。板底贴着顶棚 H
+  c.floor(-1.8, -7.1, 7.6, 0.3, H + 0.2);
   // 西墙（门洞 z:-1.25~-0.35）
   c.wall([-T / 2, K.living.z0 - 0.1], [-T / 2, K.entry.z0], 0, H, T);
   c.wall([-T / 2, K.entry.z1], [-T / 2, 0.1], 0, H, T);
@@ -504,6 +522,12 @@ export function aptColliders(ctx: AreaContext): void {
   // 隔墙（门洞 z:-2.6~-0.35）
   c.wall([5, -4], [5, K.kitchenGap.z0], 0, H, 0.12);
   c.wall([5, K.kitchenGap.z1], [5, 0], 0, H, 0.12);
+  // 三个门洞上方的过梁（M4 第 2 轮）：原来门洞上方的墙只有画面、没有碰撞体，第三人称相机在厨房里低头时退进厨房门洞的过梁里
+  // （离地 2.5m、墙里头），中心射线先打在墙上，准星什么都选不中
+  const lintel = (x: number, z: number, sx: number, sz: number, h: number) => c.box([x, (h + H) / 2, z], [sx, H - h, sz]);
+  lintel(5, (K.kitchenGap.z0 + K.kitchenGap.z1) / 2, 0.12, K.kitchenGap.z1 - K.kitchenGap.z0, K.kitchenGap.h);
+  lintel((K.bedroomGap.x0 + K.bedroomGap.x1) / 2, -4, K.bedroomGap.x1 - K.bedroomGap.x0, T, K.bedroomGap.h);
+  lintel(-T / 2, (K.entry.z0 + K.entry.z1) / 2, T, K.entry.z1 - K.entry.z0, K.entry.h);
   // 灶台
   c.box([(K.counter.x0 + K.counter.x1) / 2, 0.45, (K.counter.z0 + K.counter.z1) / 2], [K.counter.x1 - K.counter.x0, 0.9, K.counter.z1 - K.counter.z0]);
   // 门外平台（出口触发体 x∈[-1.5,0]）

@@ -1001,7 +1001,7 @@ export function outsideTexture(): THREE.CanvasTexture {
 }
 
 /**
- * 走廊南窗外的院子（二–五楼各一张，按楼层把钠灯放在不同高度）：夜空、槐树冠的剪影、钠灯的一大团光（HDR：材质颜色 ×2 后灯芯烧白）、
+ * 走廊南窗外的院子（二–五楼各一张，按楼层把钠灯放在不同高度）：夜空、槐树冠的剪影、钠灯的一团光（HDR：材质颜色 ×2.4 后灯芯烧白）、
  * 湿地上的长倒影、对面门卫室的一扇亮窗、玻璃上的雨痕与灰。n 越高越是往下看。
  */
 export function courtyardTexture(n: number, glowY?: number): THREE.CanvasTexture {
@@ -1023,7 +1023,7 @@ export function courtyardTexture(n: number, glowY?: number): THREE.CanvasTexture
     g.fillRect(w * 0.05, horizon - h * 0.08, w * 0.38, h * 0.1);
     g.fillStyle = 'rgba(160,255,200,0.9)';
     g.fillRect(w * 0.2, horizon - h * 0.05, 9, 7);
-    // 钠灯：杆 + 一大团橙光（中心烧白；窗子不大，光团要占住窗子的小半边，画面里才有一块真的亮）
+    // 钠灯：杆 + 一团橙光（只有灯芯烧白：画面里有一小块真的亮，窗外的树冠与门岗亮窗仍读得出来）
     const lx = w * 0.64, ly = glowY !== undefined ? h * glowY : Math.min(h * 0.55, Math.max(h * 0.3, horizon - h * (0.36 - n * 0.05)));
     g.strokeStyle = '#1a1a1e';
     g.lineWidth = 4;
@@ -1032,11 +1032,13 @@ export function courtyardTexture(n: number, glowY?: number): THREE.CanvasTexture
     g.lineTo(lx + 14, ly + 6);
     g.lineTo(lx, ly);
     g.stroke();
+    // M4 第 2 轮：只让灯芯烧白（原来 0–0.32 是白到浅橙、再 ×3.9，半扇窗烧成一个光盘，窗外的树冠、门岗亮窗都被盖住）
     const glow = g.createRadialGradient(lx, ly, 1, lx, ly, w * 0.6);
     glow.addColorStop(0, 'rgba(255,255,245,1)');
-    glow.addColorStop(0.18, 'rgba(255,242,212,1)');
-    glow.addColorStop(0.32, 'rgba(255,196,118,0.9)');
-    glow.addColorStop(0.6, 'rgba(255,140,50,0.3)');
+    glow.addColorStop(0.07, 'rgba(255,240,210,1)');
+    glow.addColorStop(0.11, 'rgba(255,200,130,0.95)');
+    glow.addColorStop(0.2, 'rgba(255,160,70,0.6)');
+    glow.addColorStop(0.42, 'rgba(255,140,50,0.12)');
     glow.addColorStop(1, 'rgba(255,140,50,0)');
     g.fillStyle = glow;
     g.fillRect(0, 0, w, h);
@@ -1080,6 +1082,55 @@ export function courtyardTexture(n: number, glowY?: number): THREE.CanvasTexture
       g.stroke();
     }
     for (let i = 0; i < 16; i++) blotch(g, r, r() * w, r() * h, range(r, 10, 40), 'rgba(140,140,130,1)', 0.07, 4);
+  });
+}
+
+/**
+ * 回放里上午的院子（2018 春节、2025 秋，M4 第 2 轮）：从黑楼道里看出去整扇窗是过曝的天光，只剩槐树冠与对面屋顶淡淡的灰影。
+ * 回放时几扇南窗的贴图换成这一张（同一种 CanvasTexture，换 map 不换着色器程序），夜里换回各自的夜景。
+ */
+export function courtyardDayTexture(): THREE.CanvasTexture {
+  return paintTexture(256, 256, (g, w, h) => {
+    const r = rng(318);
+    const sky = g.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, '#f4f7fb');
+    sky.addColorStop(0.6, '#e6ebf1');
+    sky.addColorStop(1, '#cfd3d6');
+    g.fillStyle = sky;
+    g.fillRect(0, 0, w, h);
+    // 对面门卫室的屋顶（淡灰）
+    g.fillStyle = 'rgba(120,124,130,0.55)';
+    g.fillRect(w * 0.05, h * 0.58, w * 0.38, h * 0.08);
+    // 槐树冠：左上一片发灰的碎叶（逆光里只剩轮廓）
+    g.fillStyle = 'rgba(96,104,98,0.5)';
+    for (let k = 0; k < 160; k++) {
+      const a = r() * Math.PI * 2, d = Math.pow(r(), 0.6) * range(r, 30, 70);
+      const cx = w * 0.22 + Math.cos(a) * d * 1.3, cy = h * 0.2 + Math.sin(a) * d * 0.7;
+      g.beginPath();
+      g.ellipse(cx, cy, range(r, 2, 6), range(r, 1.5, 4), r() * 3, 0, Math.PI * 2);
+      g.fill();
+    }
+    // 玻璃上的灰
+    for (let i = 0; i < 12; i++) blotch(g, r, r() * w, r() * h, range(r, 10, 40), 'rgba(150,150,140,1)', 0.08, 4);
+  });
+}
+
+/**
+ * 声控灯吸顶座四周顶棚上的一圈光晕（加法混合贴在顶棚下面；M4 第 2 轮）：灯光本身是朝下的聚光、照不到顶棚，
+ * 这一圈只负责“灯头上方的顶棚被烘亮了一片”的观感。黑底上的径向渐变（加法混合下黑 = 不加光），中心不到白。
+ */
+export function ceilingHaloTexture(): THREE.CanvasTexture {
+  return paintTexture(128, 128, (g, w, h) => {
+    g.fillStyle = '#000000';
+    g.fillRect(0, 0, w, h);
+    const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+    r.addColorStop(0, 'rgb(255,236,205)');
+    r.addColorStop(0.18, 'rgb(190,160,118)');
+    r.addColorStop(0.45, 'rgb(70,56,38)');
+    r.addColorStop(0.75, 'rgb(14,11,7)');
+    r.addColorStop(1, 'rgb(0,0,0)');
+    g.fillStyle = r;
+    g.fillRect(0, 0, w, h);
   });
 }
 

@@ -48,6 +48,11 @@ function sawFeedback(s, substr) {
   return [s.subtitle, s.lastFeedback, s.dialogue && s.dialogue.text].some(x => typeof x === 'string' && x.includes(substr));
 }
 
+/** 支架确认对话里的南柯进度（GDD §11 步骤 56；regions/r1_finale.mjs 也用）：0 张只说“把头装回去，就下不来了。”，1–5 张“还差 6−n 张”，收齐“都收齐了”。 */
+export function confirmWant(n) {
+  return n >= 6 ? '都收齐了' : n >= 1 ? `还差 ${6 - n} 张` : '把头装回去，就下不来了。';
+}
+
 /** 从本表挑出第 from–to 步（regions/*.mjs 用）；overrides 按步号覆盖字段，例如 { 17: { blockedBy: 'docs/requests/r2.md#3' } }。 */
 export function pickSteps(from, to, overrides = {}) {
   return STEPS.filter(s => s.n >= from && s.n <= to).map(s => ({ ...s, ...(overrides[s.n] ?? {}) }));
@@ -309,6 +314,12 @@ export const STEPS = [
       await tryFeedback(g, '砖是死的。', 'interact', 'r2.tile_right_low');
       g.expect.noFlags('r2.tin_opened');
       await g.call('interact', 'r2.tile_left_low');
+      // 抠开铁盒即在阅读器里翻开建国的信（M4 第 2 轮，同步骤 1 的巡夜本）：断言是这封信，合上再走
+      const s = await g.refresh();
+      g.assert(s.mode === 'mode.journal' && s.doc && s.doc.id === 'doc.letter_jianguo' && s.doc.text.includes('您一回也没坐上'), `抠开铁盒后应翻开建国的信：${JSON.stringify({ mode: s.mode, doc: s.doc && s.doc.id })}`);
+      await g.call('back');
+      const after = await g.refresh();
+      g.assert(after.mode !== 'mode.journal', `合上信后阅读器还开着：${after.mode}`);
     },
     expect: g => { g.expect.flags('r2.tin_opened'); g.expect.has('it.letter', 'it.train_ticket', 'it.glasses'); },
   },
@@ -497,7 +508,8 @@ export const STEPS = [
     run: async g => {
       await g.call('aimAt', 'pt.huang_normal');
       await shootExpect(g, 'ph.huang_normal');
-      await tryFeedback(g, '……你瞅见的是这个。', 'show', 'npc.huang', 'ph.huang_normal');
+      // 旁白“（他半天没出声，尾巴垂下去）”单独一行，接着才是他的台词（M4 第 2 轮）
+      await tryFeedback(g, '半天没出声', 'show', 'npc.huang', 'ph.huang_normal');
       await g.call('dlg');
     },
     expect: g => { g.expect.has('ph.huang_normal'); g.expect.noFlags('r4.got_tape'); },
@@ -675,9 +687,9 @@ export const STEPS = [
       await g.call('interact', 'r1.bracket');
       let s = await g.refresh();
       g.assert(s.dialogue !== null, '应开出强制对话 dlg.r1.bracket_confirm');
-      // 正文显示南柯进度：100% 路线“都收齐了”，主线路线“0/6”（GDD §11 步骤 56、§6.13）；
-      // 按实际收下的张数断言（M3：--yin 从寅时重来时是寅时存档里的张数）
-      const want = s.ants >= 6 ? '都收齐了' : `${s.ants}/6`;
+      // 正文显示南柯进度（GDD §11 步骤 56、§6.13；M4 第 2 轮改写）：收齐 →“都收齐了”，1–5 张 →“还差 6−n 张”，
+      // 一张没交（主线路线）→ 只有“把头装回去，就下不来了。”、不提蚁穴；按实际收下的张数断言（M3：--yin 从寅时重来时是寅时存档里的张数）
+      const want = confirmWant(s.ants);
       if (routeOf(g) === 'main') g.assert(s.ants === 0, `主线路线蚁穴应一张没收：${s.ants}`);
       if (routeOf(g) === 'full') g.assert(s.ants >= 6, `100% 路线蚁穴应收齐：${s.ants}`);
       if (!s.dialogue.text.includes(want) && s.dialogue.options.length === 0) {
@@ -685,6 +697,7 @@ export const STEPS = [
         s = await g.refresh();
       }
       g.assert(s.dialogue && s.dialogue.text.includes(want), `确认对话应显示南柯进度“${want}”：${JSON.stringify(s.dialogue)}`);
+      if (s.ants === 0) g.assert(!s.dialogue.text.includes('蚂蚁') && !s.dialogue.text.includes('/6'), `一张没交过的玩家不该在确认对话里看到蚁穴：${JSON.stringify(s.dialogue.text)}`);
       await g.call('choose', 1);
       await g.check.mode('mode.tripod');
       await g.call('tripod', 'start');
@@ -717,9 +730,18 @@ export const STEPS = [
       const r = await g.call('dlg', { maxReal: 300_000 });
       if (!g.nanke) return;
       g.assert(r.at === 'await', `南柯段落应停在变焦等待：${JSON.stringify(r)}`);
+      // 题名“南柯”：原来是一行字幕（'feedback'）；M4 第 2 轮 R1-finale 改成与片名同一种大字卡（ui.fade.title，不发 'feedback'，
+      // zoom 的 settle 会一路推过它）——在页面上记下大字卡出现过的文字，两种都认
+      await g.page.evaluate(() => {
+        const w = window;
+        w.__cmTitles = [];
+        const el = document.querySelector('.cm-fade-title-main');
+        if (el) new MutationObserver(() => w.__cmTitles.push(el.textContent ?? '')).observe(el, { childList: true, subtree: true, characterData: true });
+      });
       await g.call('zoom', 6);
       await g.refresh();
-      g.expect.feedback('南柯');
+      const titles = await g.page.evaluate(() => window.__cmTitles ?? []);
+      if (!titles.some(t => t.includes('南柯'))) g.expect.feedback('南柯');
       await g.call('dlg', { maxReal: 300_000 });
     },
     expect: g => g.expect.eq('ending', g.nanke ? 'nanke' : 'main'),

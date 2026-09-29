@@ -20,6 +20,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import { launchChromium } from './browserSlots.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const CHROMIUM_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
@@ -168,17 +169,56 @@ export function luma(data, i) {
   return (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
 }
 
-/** 整图平均亮度与“亮度 > hi 的像素占比”（shots.mjs 的验收，ARCH §12.4）。 */
+/**
+ * 整图平均亮度、“亮度 > hi 的像素占比”，以及（M4 第 2 轮）先做 3×3 盒式模糊再取的亮度第 99.5 百分位 coreP995——
+ * shots.mjs 的高光验收改看它（ARCH §12.4）：单像素的雨丝、胶片颗粒、VHS 雪花被模糊掉，只有成片的亮核（灯芯、亮窗、CRT、霓虹）
+ * 才撑得起第 99.5 百分位；原来逐像素数“> 0.8 的占比”对这些随机噪点很敏感，好几张图贴着 0.5% 抖。
+ */
 export function lumaStats(img, hi = 0.8) {
-  const n = img.width * img.height;
+  const w = img.width, h = img.height;
+  const n = w * h;
+  const L = new Float32Array(n);
   let sum = 0;
   let bright = 0;
   for (let i = 0; i < n; i++) {
     const l = luma(img.data, i * 4);
+    L[i] = l;
     sum += l;
     if (l > hi) bright++;
   }
-  return { mean: sum / n, brightFrac: bright / n };
+  // 3×3 盒式模糊（可分离：先横后竖；边缘按实际像素数平均）→ 直方图取第 99.5 百分位
+  const rowB = new Float32Array(n);
+  for (let y = 0; y < h; y++) {
+    const o = y * w;
+    for (let x = 0; x < w; x++) {
+      let s = L[o + x], c = 1;
+      if (x > 0) { s += L[o + x - 1]; c++; }
+      if (x < w - 1) { s += L[o + x + 1]; c++; }
+      rowB[o + x] = s / c;
+    }
+  }
+  const BINS = 1024;
+  const hist = new Uint32Array(BINS);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      let s = rowB[i], c = 1;
+      if (y > 0) { s += rowB[i - w]; c++; }
+      if (y < h - 1) { s += rowB[i + w]; c++; }
+      hist[Math.min(BINS - 1, Math.floor((s / c) * BINS))]++;
+    }
+  }
+  let acc = 0;
+  let core = 0;
+  const want = n * 0.995;
+  for (let b = 0; b < BINS; b++) {
+    acc += hist[b];
+    if (acc >= want) {
+      core = (b + 0.5) / BINS;
+      break;
+    }
+  }
+  return { mean: sum / n, brightFrac: n ? bright / n : 0, coreP995: core };
 }
 
 /** (x, y) 周围 size×size 像素的平均亮度（越界的像素不算）。 */
@@ -247,7 +287,7 @@ export async function launch(opts = {}) {
   const { chromium } = await import('playwright');
   let browser;
   try {
-    browser = await chromium.launch({ args: CHROMIUM_ARGS, headless });
+    browser = await launchChromium(chromium, { args: CHROMIUM_ARGS, headless }, label);
   } catch (err) {
     await srv.close();
     throw err;

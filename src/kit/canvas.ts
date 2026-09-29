@@ -156,6 +156,11 @@ export function agePaper(g: CanvasRenderingContext2D, w: number, h: number, stre
 }
 
 /** 按字切行（中文逐字、拉丁按词）。 */
+/** 避头尾（M4 第 2 轮整合，同 R3 守则的 wrapKinsoku）：不能打头的句读、后括号、后引号。 */
+const NO_LINE_START = new Set([...'，。、；：？！）」』”’》…—']);
+/** 不能留在行末的前括号、前引号。 */
+const NO_LINE_END = new Set([...'（「『“‘《']);
+
 export function wrapText(g: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   const out: string[] = [];
   for (const para of text.split('\n')) {
@@ -163,9 +168,16 @@ export function wrapText(g: CanvasRenderingContext2D, text: string, maxWidth: nu
     const tokens = para.match(/[A-Za-z0-9.,:;'"!?()\-/]+\s*|\s+|./gu) ?? [];
     for (const tk of tokens) {
       const next = line + tk;
-      if (line && g.measureText(next).width > maxWidth) {
+      // 句读不打头：超宽也挂在本行末尾（多出一个字）
+      if (line && g.measureText(next).width > maxWidth && !NO_LINE_START.has(tk[0]!)) {
+        // 前括号不留在行末：挪到下一行开头
+        let carry = '';
+        while (line.length > 1 && NO_LINE_END.has(line[line.length - 1]!)) {
+          carry = line[line.length - 1]! + carry;
+          line = line.slice(0, -1);
+        }
         out.push(line.trimEnd());
-        line = tk.trimStart();
+        line = carry + tk.trimStart();
       } else line = next;
     }
     out.push(line);

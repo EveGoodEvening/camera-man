@@ -537,7 +537,8 @@ function buildChest(ctx: AreaContext, market: THREE.Group): THREE.Object3D {
     m.material = l;
   });
   // 箱子矮（0.5m），又在摊桌挡着的墙根，第三人称俯到 -35° 也瞄不到：箱盖上方垫一块不渲染的拾取代理（箱子自己的子节点，
-  // 所以交互 hit、拍照主体 ref 仍是这口箱子；包围盒中心随之抬到约 0.5m，pt.huang_hides 的锚点落在箱盖上）
+  // 所以交互 hit、拍照主体 ref 仍是这口箱子）。代理不渲染，不算进拍照的可见包围盒（中心仍在 0.25m），
+  // 所以 pt.huang_hides 在 photo.ts 里另给了箱盖中心的锚点
   const proxy = new THREE.Mesh(boxG(0.9, 0.5, 0.5), MATERIALS.hitProxy());
   proxy.position.set(0, 0.75, 0);
   proxy.name = 'hit:r4.camphor_chest';

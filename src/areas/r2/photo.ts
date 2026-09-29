@@ -9,7 +9,9 @@ export const PHOTO_TARGETS: readonly PhotoTargetDef[] = [
   {
     // 王奶奶的影子与门神同时进画（片段 [0,8) 秒里 r2.menshen 隐去，由片段道具代演贴门神）
     id: PT.MENSHEN_2018,
-    subjects: [{ ref: GHOST.WANG_2018 }, { ref: OBJ.R2_MENSHEN }],
+    // M4 第 2 轮：王奶奶的判定锚点在胸口（1.15m），不用包围盒中心（腰，0.75m）——“她和门神同框”看的是上半身；
+    // 在门口残影点旁进段、镜头自己转向门神（俯仰 -15°）时，腰上的锚点正好压在画框下沿 60% 外，拍成“得一块儿进画”
+    subjects: [{ ref: GHOST.WANG_2018, anchor: [0, 1.15, 0] }, { ref: OBJ.R2_MENSHEN }],
     maxDist: 5, minZoom: 1, lens: 'normal',
     context: { kind: 'replay', segment: SEG.DOOR_2018, t: [8, 20] },
     priority: 2,

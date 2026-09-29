@@ -110,13 +110,125 @@ function leanLantern(lantern: THREE.Object3D | undefined, root: THREE.Object3D, 
   lantern.rotation.z += -lx * LEAN;
 }
 
+/**
+ * 跟随红光的锚点（M4 第 2 轮）：灯笼前方约 0.8m、低 0.55m（离地约 0.75m，学 R4 门童的 boyLightAnchor）——红光铺在他脚前的地上。
+ * 灯笼本身在 brightenLantern 里放大了 1.5 倍，锚点挂在灯笼下，本地坐标按这个倍数折回米。
+ */
+const LANTERN_LIGHT_OFFSET: V3 = [0, -0.55, -0.8];
+const LANTERN_SCALE = 1.5;
+
+/**
+ * 土地金描边（addRim 的 uRim）压到原来的一半：只留轮廓（M4 第 2 轮）。
+ * 另给他一层很淡的本色自发光（神仙自己带着一点光）：院里只有灯笼的红光照着他，灰袍、白胡子、枣木拐杖的本色原来全被染成红金色。
+ * 只动带描边的材质（人偶自己的那一套，不是共享材质）。
+ */
+const TUDI_RIM_SCALE = 0.5;
+const TUDI_SELF_GLOW = 0.22;
+function softenRim(rig: CharacterRig): void {
+  const done = new Set<THREE.Material>();
+  rig.root.traverse(o => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      const u = m.userData.rimUniform as { value: THREE.Color } | undefined;
+      if (!u || done.has(m)) continue;
+      done.add(m);
+      u.value.multiplyScalar(TUDI_RIM_SCALE);
+      const std = m as THREE.MeshStandardMaterial;
+      if (!std.isMeshStandardMaterial) continue;
+      std.emissive.copy(std.color).multiplyScalar(TUDI_SELF_GLOW);
+      if (std.map) {
+        std.emissiveMap = std.map;
+        std.needsUpdate = true;
+      }
+    }
+  });
+}
+
+/**
+ * 胡子的网格版（M4 第 2 轮）：kit 的胡子是 1px 的 LineSegments，1× 下看不见。换成几条 1cm 宽的白色扁带，从下巴垂到约 0.16m，
+ * 挂在原胡子的父节点（头部插槽）上，原来的线段藏起来。材质自己一份，随区域释放。
+ */
+function meshBeard(ctx: AreaContext, rig: CharacterRig): void {
+  const lines = rig.props.beard;
+  const slot = lines?.parent;
+  if (!lines || !slot) return;
+  lines.visible = false;
+  const mat = ctx.track(new THREE.MeshStandardMaterial({ color: '#EDEAE2', roughness: 0.95, side: THREE.DoubleSide, emissive: '#EDEAE2', emissiveIntensity: 0.08 }));
+  mat.userData.tempC = TEMP_C.yin;
+  const g = new THREE.Group();
+  g.name = 'beardMesh';
+  // 下巴底下那一绺（中间长、两边短，略往前飘），两撇八字胡
+  const strands: [number, number, number, number][] = [
+    // x, 长度, 往外撇（rad）, 前后（m）
+    [0, 0.16, 0, 0], [-0.012, 0.15, 0.05, 0.002], [0.012, 0.15, -0.05, 0.002], [-0.024, 0.13, 0.1, -0.002], [0.024, 0.13, -0.1, -0.002],
+    [-0.035, 0.1, 0.16, -0.006], [0.035, 0.1, -0.16, -0.006], [-0.006, 0.14, 0.02, 0.006], [0.006, 0.14, -0.02, 0.006],
+  ];
+  for (const [x, len, splay, dz] of strands) {
+    const geo = ctx.track(new THREE.PlaneGeometry(0.011, len).translate(0, -len / 2, 0));
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, 0.052, -0.06 + dz);
+    m.rotation.set(-0.12, 0, splay);
+    g.add(m);
+  }
+  for (const sx of [-1, 1]) {
+    const geo = ctx.track(new THREE.PlaneGeometry(0.045, 0.01).translate(sx * 0.0225, 0, 0));
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(sx * 0.004, 0.074, -0.068);
+    m.rotation.set(-0.2, 0, sx * -0.45);
+    g.add(m);
+  }
+  for (const c of g.children) {
+    c.raycast = () => {};
+    c.userData.noBounds = true;
+  }
+  slot.add(g);
+}
+
+/** 取景器里第一次瞅见土地时，他冲你招手（GDD §2.2“土地爷坐在马扎上冲你招手”，M4 第 2 轮）：左手（右手拄着拐杖）摆 2 秒。 */
+const WAVE_SEC = 2;
+function tudiWave(rig: CharacterRig, t: number): void {
+  const j = rig.joints;
+  // 0.3 秒抬起、最后 0.3 秒放下；中间左右摆
+  const k = Math.min(1, t / 0.3, Math.max(0, (WAVE_SEC - t) / 0.3));
+  const e = k * k * (3 - 2 * k);
+  j.shoulderL.rotation.x = j.shoulderL.rotation.x * (1 - e) + 2.4 * e;
+  j.shoulderL.rotation.z = j.shoulderL.rotation.z * (1 - e) + (-0.2 - Math.sin(t * 8) * 0.35) * e;
+  j.elbowL.rotation.x = j.elbowL.rotation.x * (1 - e) + 0.35 * e;
+}
+/** 他在不在取景器的画面里（离得不远、在视线 ±25° 以内） */
+function inVfView(g: GameApi, p: THREE.Vector3): boolean {
+  if (!g.vf.on) return false;
+  const pl = g.player.position;
+  const dx = p.x - pl.x, dz = p.z - pl.z;
+  const d = Math.hypot(dx, dz);
+  if (d > 14 || d < 0.5) return false;
+  const yaw = (Math.atan2(dx, -dz) * 180) / Math.PI;
+  return Math.abs(angleDiff(g.player.yaw, yaw)) < 25;
+}
+
 function registerTudi(ctx: AreaContext, w: World): void {
   const rig = createCharacter('tudi', { look: 'ghost', seed: 3 });
-  brightenLantern(ctx, rig, 0.55);
+  brightenLantern(ctx, rig, 0.55, 'vf');
+  softenRim(rig);
+  meshBeard(ctx, rig);
+  // 跟随红光的锚点：灯笼前下方、贴近地面（见 LANTERN_LIGHT_OFFSET）
+  let lightAnchor: THREE.Object3D | string = 'lantern';
+  const lanternNode = rig.props.lantern;
+  if (lanternNode) {
+    const a = new THREE.Object3D();
+    a.name = 'tudiLightAnchor';
+    a.position.set(LANTERN_LIGHT_OFFSET[0] / LANTERN_SCALE, LANTERN_LIGHT_OFFSET[1] / LANTERN_SCALE, LANTERN_LIGHT_OFFSET[2] / LANTERN_SCALE);
+    lanternNode.add(a);
+    lightAnchor = a;
+  }
+  // 招手：-1 = 还没招过；≥ 0 = 招手进行了多少秒（每次进区域最多一回，只在还没见过他的时候）
+  let waveT = -1;
+  let waved = false;
   const tudi = ctx.npc({
     id: NPC.TUDI, rig, yin: true, tempC: TEMP_C.yin,
     placement: s => tudiPlacement(s),
-    lights: [{ light: w.lights.lantern, anchor: 'lantern' }],
+    lights: [{ light: w.lights.lantern, anchor: lightAnchor }],
     interact: {
       label: LABEL.tudi, view: 'viewfinder', revealOnVfInteract: true, anchorY: 0.8,
       talk: [
@@ -125,12 +237,28 @@ function registerTudi(ctx: AreaContext, w: World): void {
         { when: `!${F.R1_P1_DONE}`, dialogue: DLG_ID.tudiGoReplay },
         { when: `!${F.R1_MISSION_GIVEN}`, dialogue: DLG_ID.tudiMission },
         { when: F.R1_PORTRAIT_COMPLETE, dialogue: DLG_ID.tudiBooth },
+        // M4 第 2 轮：寅时按带子看到哪儿换话（原来看完带子、听完那句话还是“先瞅瞅吧”）
+        { when: `${F.R1_HEARD_VOICE} && ${F.R1_PORTRAIT_PLACED}`, dialogue: DLG_ID.tudiYinPlaced },
+        { when: F.R1_HEARD_VOICE, dialogue: DLG_ID.tudiYinVoice },
+        { when: F.R1_TAPE_WATCHED, dialogue: DLG_ID.tudiYinTape },
         { when: F.R4_GOT_TAPE, dialogue: DLG_ID.tudiYin },
         { when: `${F.R2_WANG_DONE} && ${F.R3_SAW_TRUE_FORM}`, dialogue: DLG_ID.tudiChou },
         { dialogue: DLG_ID.tudiIdle },
       ],
     },
-    update: npc => leanLantern(rig.props.lantern, npc.root, ctx.game),
+    update: (npc, dt) => {
+      leanLantern(rig.props.lantern, npc.root, ctx.game);
+      const g = ctx.game;
+      if (!waved && !ctx.state.flag(F.R1_MET_TUDI) && g.modes.top === 'mode.viewfinder' && inVfView(g, npc.root.position)) {
+        waved = true;
+        waveT = 0;
+      }
+      if (waveT >= 0) {
+        waveT += dt;
+        if (waveT >= WAVE_SEC) waveT = -1;
+        else tudiWave(rig, waveT);
+      }
+    },
     // 补脸之后从槐树下挪到门岗门口：淡出→瞬移→淡入，再站起来
     onPlaced: (npc: NpcHandle, prev) => {
       const p = tudiPlacement(ctx.state);
@@ -542,7 +670,7 @@ export function keepRainOutOfBooth(r: RainRig): void {
 export function makeLanternOnly(ctx: AreaContext): CharacterRig {
   // 土地的“只有灯笼”变体（world 层，常光可见）：身子不见，灯笼自己飘着
   const rig = createCharacter('tudi', { look: 'live', variant: 'lantern_only', seed: 3 });
-  const halo = brightenLantern(ctx, rig, 1);
+  const halo = brightenLantern(ctx, rig, 1, 'far');
   if (halo) {
     halo.name = 'lanternOnlyHalo';
     rig.root.userData.halo = halo;
@@ -552,19 +680,30 @@ export function makeLanternOnly(ctx: AreaContext): CharacterRig {
 
 /**
  * 开场的光引导（GDD §2.2、§3.2“槐树下有一盏灯笼飘着”）：kit 的灯笼灯芯只有 1.6，出了门岗望过去只剩三个像素的粉点，被钠灯与亮窗压住。
- * M4：灯笼放大 1.5 倍、灯芯自发光提到 6（烧白、出 Bloom），再挂一片朝着镜头的加法光晕（不吃雾，20m 外也是一团红光）。
- * glow = 光晕的强度倍数（常光下飘着的那盏 1；取景器里土地手上那盏收一点）。材质是克隆的（kit 的配件材质按人偶共享），随区域释放。
+ * M4：灯笼放大 1.5 倍、灯芯自发光提上去（烧白、出 Bloom），再挂一片朝着镜头的加法光晕（不吃雾，20m 外也是一团红光）。
+ * M4 第 2 轮：分两种——
+ * - 常光下自己飘着的那盏（引路，far）：灯芯 4、光晕 0.42m × 1.6 倍，按相机距离缩放（2m 内只剩 0.25 倍的一圈，8m 外满尺寸）：
+ *   从门岗门口望过去照样是一团红，走到跟前（对土地庙按 E）不再是整团红光；
+ * - 取景器里土地手上那盏：灯芯 6 → 2.5（核心仍烧白，不再是一大团）、光晕 0.26m × 0.9 倍 × glow，
+ *   1.5m 内 0.35 倍、5.5m 外满尺寸：近看不再是一个比土地的头还大的白红光盘。
+ * glow = 光晕的强度倍数。材质是克隆的（kit 的配件材质按人偶共享），随区域释放。
  */
-function brightenLantern(ctx: AreaContext, rig: CharacterRig, glow: number): THREE.Mesh | null {
+const LANTERN_LOOK = {
+  far: { core: 4, size: 0.42, gain: 1.6, near: 2, full: 8, min: 0.25 },
+  vf: { core: 2.5, size: 0.26, gain: 0.9, near: 1.5, full: 5.5, min: 0.35 },
+} as const;
+const _haloW = new THREE.Vector3(), _camW = new THREE.Vector3();
+function brightenLantern(ctx: AreaContext, rig: CharacterRig, glow: number, kind: keyof typeof LANTERN_LOOK): THREE.Mesh | null {
   const lantern = rig.props.lantern;
   if (!lantern) return null;
-  lantern.scale.setScalar(1.5);
+  const look = LANTERN_LOOK[kind];
+  lantern.scale.setScalar(LANTERN_SCALE);
   let body: THREE.Mesh | null = null;
   lantern.traverse(o => {
     const m = o as THREE.Mesh;
     if (!m.isMesh || m.name !== 'lanternBody') return;
     const mat = ctx.track((m.material as THREE.MeshStandardMaterial).clone());
-    mat.emissiveIntensity = 6;
+    mat.emissiveIntensity = look.core;
     m.material = mat;
     body = m;
   });
@@ -578,10 +717,10 @@ function brightenLantern(ctx: AreaContext, rig: CharacterRig, glow: number): THR
     g.fillRect(0, 0, w, h);
   }));
   const haloMat = ctx.track(new THREE.MeshBasicMaterial({
-    map: tex, color: new THREE.Color(LANTERN_RED).multiplyScalar(1.6 * glow), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+    map: tex, color: new THREE.Color(LANTERN_RED).multiplyScalar(look.gain * glow), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
   }));
   haloMat.userData.tempC = 40;
-  const halo = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.42), haloMat);
+  const halo = new THREE.Mesh(new THREE.PlaneGeometry(look.size, look.size), haloMat);
   halo.name = 'lanternHalo';
   ctx.track(halo.geometry);
   const at = (body as THREE.Mesh | null)?.position;
@@ -599,6 +738,9 @@ function brightenLantern(ctx: AreaContext, rig: CharacterRig, glow: number): THR
       parent.getWorldQuaternion(q).invert();
       halo.quaternion.copy(q).multiply(cam.quaternion);
     } else halo.quaternion.copy(cam.quaternion);
+    // 按相机距离缩放：近看只剩一圈，远处照样是一团红（M4 第 2 轮）
+    const d = halo.getWorldPosition(_haloW).distanceTo(cam.getWorldPosition(_camW));
+    halo.scale.setScalar(Math.min(1, Math.max(look.min, (d - look.near) / (look.full - look.near))));
     halo.updateMatrixWorld();
   };
   lantern.add(halo);

@@ -13,8 +13,18 @@ export const STRINGS = {
     noWebgl2: '你的浏览器不支持 WebGL2，无法运行《天亮了，叫我》。请换用最新版的 Chrome、Edge、Firefox 或 Safari。',
     exception: '启动失败：',
     contextLost: '画面丢失，正在恢复…',
+    /** M4 第 2 轮：上下文丢失超过 15 秒（真实时间、页面可见）还没恢复 */
+    contextDead: '画面无法恢复，请刷新页面（进度已自动保存）',
+    /** M4 第 2 轮：指针锁定一直被拒，降级为拖拽转视角 */
+    lockFallback: '无法锁定鼠标：按住左键拖动来转视角',
   },
-  save: { corrupted: '存档损坏，只能重新开始。' },
+  save: {
+    corrupted: '存档损坏，只能重新开始。',
+    /** M4 第 2 轮：只有寅时存档损坏（save.auto 完好） */
+    yinCorrupted: '寅时存档损坏，已无法从寅时重来。',
+    /** M4 第 2 轮：自动存档写不进去（存储被禁用、配额满）；每局只提示一次 */
+    writeFailed: '无法自动存档（浏览器存储不可用），关闭页面会丢失进度。',
+  },
   menu: {
     continue: '继续',
     fromYin: '从寅时重来',
@@ -24,6 +34,8 @@ export const STRINGS = {
     back: '返回',
     paused: '暂停',
     clickToContinue: '点击继续',
+    /** M4 第 2 轮：有进度时“新游戏”“从寅时重来”要按两次（第一次换成这句，3 秒内再按一次才执行） */
+    confirmOverwrite: '再按一次：覆盖当前进度',
   },
   settings: {
     volume: '音量',

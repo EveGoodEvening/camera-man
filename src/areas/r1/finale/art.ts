@@ -168,15 +168,15 @@ export function paintZhouFace(g: G, cx: number, cy: number, s: number, st: FaceS
     const by = cy - s * 0.12 - up * s * 0.04;
     stroke(g, [[bx - side * w * 0.14, by + s * 0.02], [bx, by - s * 0.015], [bx + side * w * 0.12, by + s * 0.01]], { color: ink, width: lw * 2.2, passes: 4, seed: st.seed + 30 + side });
   }
-  // 眼睛：眯着的细长眼、眼袋；抬头时眼珠在上眼睑下
+  // 眼睛：睁着（“这回我睁着眼”）、眼袋；抬头时眼珠往上看，贴着上眼睑（M4 第 2 轮：原来是眯着的细长眼，像在笑）
   for (const side of [-1, 1]) {
     const ex = cx + side * w * 0.2;
     const ey = cy - s * 0.04;
-    stroke(g, [[ex - w * 0.11, ey], [ex, ey - s * 0.028], [ex + w * 0.11, ey]], { color: ink, width: lw * 1.3, seed: st.seed + 40 + side });
-    stroke(g, [[ex - w * 0.09, ey + s * 0.012], [ex, ey + s * 0.02], [ex + w * 0.09, ey + s * 0.01]], { color: ink, width: lw * 0.7, passes: 2, seed: st.seed + 42 + side });
+    stroke(g, [[ex - w * 0.11, ey + s * 0.004], [ex - w * 0.04, ey - s * 0.034], [ex + w * 0.04, ey - s * 0.036], [ex + w * 0.11, ey + s * 0.002]], { color: ink, width: lw * 1.3, seed: st.seed + 40 + side });
+    stroke(g, [[ex - w * 0.09, ey + s * 0.016], [ex, ey + s * 0.024], [ex + w * 0.09, ey + s * 0.014]], { color: ink, width: lw * 0.7, passes: 2, seed: st.seed + 42 + side });
     g.fillStyle = ink;
     g.globalAlpha = 0.85;
-    ellipse(g, ex + side * w * 0.01, ey - s * (0.004 + up * 0.012), s * 0.017, s * 0.014);
+    ellipse(g, ex + side * w * 0.008, ey - s * (0.006 + up * 0.012), s * 0.02, s * 0.019);
     g.fill();
     g.globalAlpha = 1;
     if (st.light) {
@@ -190,13 +190,14 @@ export function paintZhouFace(g: G, cx: number, cy: number, s: number, st: FaceS
   // 鼻子：宽鼻头
   stroke(g, [[cx - w * 0.04, cy - s * 0.06], [cx - w * 0.06, cy + s * 0.1], [cx - w * 0.12, cy + s * 0.15], [cx - w * 0.05, cy + s * 0.18], [cx + w * 0.05, cy + s * 0.18], [cx + w * 0.12, cy + s * 0.15]],
     { color: ink, width: lw * 1.2, seed: st.seed + 50 });
-  // 法令纹
+  // 法令纹（六十三岁的脸本来就有；只是一道浅线，不是笑出来的深纹）
   for (const side of [-1, 1]) {
-    stroke(g, [[cx + side * w * 0.14, cy + s * 0.14], [cx + side * w * 0.2, cy + s * 0.26], [cx + side * w * 0.19, cy + s * 0.36]], { color: ink, width: lw * 0.8, passes: 2, seed: st.seed + 60 + side });
+    stroke(g, [[cx + side * w * 0.14, cy + s * 0.15], [cx + side * w * 0.19, cy + s * 0.26], [cx + side * w * 0.185, cy + s * 0.33]], { color: ink, width: lw * 0.6, passes: 1, seed: st.seed + 60 + side });
   }
-  // 嘴：抿着、嘴角往上一点点（他冲着你笑）
-  stroke(g, [[cx - w * 0.15, cy + s * 0.27], [cx - w * 0.05, cy + s * 0.285], [cx + w * 0.05, cy + s * 0.285], [cx + w * 0.15, cy + s * 0.265]], { color: ink, width: lw * 1.4, seed: st.seed + 70 });
-  stroke(g, [[cx - w * 0.08, cy + s * 0.33], [cx + w * 0.08, cy + s * 0.33]], { color: ink, width: lw * 0.6, passes: 1, seed: st.seed + 71 });
+  // 嘴：抿成一条线，嘴角略往下（照 03:14 那一刻：他抬头看镜头，脸是平的。M4 第 2 轮：原来嘴角上扬、带笑纹，
+  // 遗像与片尾卡提前用掉了结局“这是头一回，他冲着你笑”；笑容只留给结局那一拍的 smileFaceTexture）
+  stroke(g, [[cx - w * 0.15, cy + s * 0.29], [cx - w * 0.05, cy + s * 0.28], [cx + w * 0.05, cy + s * 0.28], [cx + w * 0.15, cy + s * 0.29]], { color: ink, width: lw * 1.4, seed: st.seed + 70 });
+  stroke(g, [[cx - w * 0.07, cy + s * 0.335], [cx + w * 0.07, cy + s * 0.335]], { color: ink, width: lw * 0.6, passes: 1, seed: st.seed + 71 });
   // 胡茬
   g.fillStyle = ink;
   for (let i = 0; i < 90; i++) {
@@ -298,12 +299,12 @@ export function tapeFaceTexture(): THREE.CanvasTexture {
       g.quadraticCurveTo(cx + sx * w * 0.19, h * 0.7, cx + sx * w * 0.16, h * 0.8);
       g.stroke();
     }
-    // 抿着的嘴，嘴角往上一点点；下唇的影子
+    // 抿成一条线的嘴（嘴角略往下：03:14 那张脸是平的，笑容只留给结局；M4 第 2 轮）；下唇的影子
     g.strokeStyle = ink(1);
     g.lineWidth = h * 0.056;
     g.beginPath();
-    g.moveTo(cx - w * 0.13, h * 0.705);
-    g.quadraticCurveTo(cx, h * 0.745, cx + w * 0.13, h * 0.7);
+    g.moveTo(cx - w * 0.13, h * 0.725);
+    g.quadraticCurveTo(cx, h * 0.705, cx + w * 0.13, h * 0.725);
     g.stroke();
     g.fillStyle = ink(0.55);
     ellipse(g, cx, h * 0.77, w * 0.08, h * 0.018);
@@ -320,7 +321,8 @@ export function tapeFaceTexture(): THREE.CanvasTexture {
 
 /**
  * 结局“这是头一回，他冲着你笑”那一拍：老周魂影头上的一张笑脸（M4）。与 tapeFaceTexture 同一套版式（贴在头上正脸那一块球面上），
- * 线条用深青（魂影是半透明的冷青，深青的五官叠上去读得出来）：眯起来弯着的眼、眼角的鱼尾纹、挑起的眉、往上翘的嘴角与笑出来的法令纹。
+ * 线条用深青（魂影是冷青，深青的五官叠上去读得出来）。M4 第 2 轮：原来是 ^^ 眯眼加大 U 形嘴、颧骨高光，读起来像表情包；
+ * 收成一个老人家的笑——眼睛半眯（上眼睑压下来、底下露一点眼珠）、眼角的鱼尾纹，嘴抿着、嘴角只微微往上，法令纹浅浅的。
  */
 export function smileFaceTexture(): THREE.CanvasTexture {
   return paintTexture(256, 256, (g, w, h) => {
@@ -329,93 +331,100 @@ export function smileFaceTexture(): THREE.CanvasTexture {
     const ink = (a: number) => `rgba(8,34,38,${a})`;
     g.lineCap = 'round';
     g.lineJoin = 'round';
-    g.strokeStyle = ink(0.75);
-    g.lineWidth = h * 0.018;
+    // 两道抬头纹（松开了，比带子里浅）
+    g.strokeStyle = ink(0.5);
+    g.lineWidth = h * 0.014;
     for (let i = 0; i < 2; i++) {
       const y = h * (0.2 + i * 0.05);
       g.beginPath();
-      g.moveTo(cx - w * 0.18, y + h * 0.01);
-      g.quadraticCurveTo(cx, y - h * 0.015, cx + w * 0.18, y + h * 0.01);
+      g.moveTo(cx - w * 0.17, y + h * 0.008);
+      g.quadraticCurveTo(cx, y - h * 0.01, cx + w * 0.17, y + h * 0.008);
       g.stroke();
     }
     for (const sx of [-1, 1]) {
       const ex = cx + sx * w * 0.17;
-      // 眉：舒展地挑着
-      g.strokeStyle = ink(0.95);
-      g.lineWidth = h * 0.05;
+      // 眉：舒展，眉梢略往下
+      g.strokeStyle = ink(0.9);
+      g.lineWidth = h * 0.045;
       g.beginPath();
-      g.moveTo(cx + sx * w * 0.06, h * 0.37);
-      g.quadraticCurveTo(cx + sx * w * 0.17, h * 0.325, cx + sx * w * 0.29, h * 0.365);
+      g.moveTo(cx + sx * w * 0.06, h * 0.365);
+      g.quadraticCurveTo(cx + sx * w * 0.17, h * 0.335, cx + sx * w * 0.28, h * 0.37);
       g.stroke();
-      // 眯起来的眼：一道往上弯的弧（∩）
-      g.lineWidth = h * 0.034;
+      // 半眯的眼：上眼睑一道压下来的弧，底下露一小块眼珠
+      g.fillStyle = ink(0.95);
+      ellipse(g, ex + sx * w * 0.004, h * 0.472, w * 0.03, h * 0.016);
+      g.fill();
+      g.strokeStyle = ink(1);
+      g.lineWidth = h * 0.03;
       g.beginPath();
-      g.moveTo(ex - w * 0.075, h * 0.475);
-      g.quadraticCurveTo(ex, h * 0.415, ex + w * 0.075, h * 0.475);
+      g.moveTo(ex - w * 0.075, h * 0.472);
+      g.quadraticCurveTo(ex, h * 0.44, ex + w * 0.075, h * 0.47);
+      g.stroke();
+      // 下眼睑：一道浅线（笑的时候往上推一点）
+      g.lineWidth = h * 0.012;
+      g.strokeStyle = ink(0.55);
+      g.beginPath();
+      g.moveTo(ex - w * 0.06, h * 0.487);
+      g.quadraticCurveTo(ex, h * 0.5, ex + w * 0.06, h * 0.486);
       g.stroke();
       // 鱼尾纹
-      g.lineWidth = h * 0.014;
+      g.strokeStyle = ink(0.7);
+      g.lineWidth = h * 0.012;
       for (let k = -1; k <= 1; k++) {
         g.beginPath();
-        g.moveTo(ex + sx * w * 0.09, h * (0.465 + k * 0.02));
-        g.lineTo(ex + sx * w * 0.14, h * (0.46 + k * 0.035));
+        g.moveTo(ex + sx * w * 0.085, h * (0.47 + k * 0.016));
+        g.lineTo(ex + sx * w * 0.13, h * (0.466 + k * 0.03));
         g.stroke();
       }
-      // 笑出来的颧骨（一小团浅影）
-      const ch = g.createRadialGradient(ex + sx * w * 0.02, h * 0.58, 2, ex + sx * w * 0.02, h * 0.58, w * 0.08);
-      ch.addColorStop(0, ink(0.25));
-      ch.addColorStop(1, ink(0));
-      g.fillStyle = ch;
-      ellipse(g, ex + sx * w * 0.02, h * 0.58, w * 0.08, h * 0.05);
-      g.fill();
     }
     // 鼻子
-    g.strokeStyle = ink(0.8);
-    g.lineWidth = h * 0.022;
+    g.strokeStyle = ink(0.75);
+    g.lineWidth = h * 0.02;
     g.beginPath();
     g.moveTo(cx - w * 0.01, h * 0.49);
     g.lineTo(cx - w * 0.05, h * 0.61);
-    g.quadraticCurveTo(cx, h * 0.645, cx + w * 0.06, h * 0.615);
+    g.quadraticCurveTo(cx, h * 0.64, cx + w * 0.055, h * 0.612);
     g.stroke();
-    // 法令纹（笑得深）
-    g.lineWidth = h * 0.026;
+    // 法令纹：浅浅两道
+    g.strokeStyle = ink(0.6);
+    g.lineWidth = h * 0.018;
     for (const sx of [-1, 1]) {
       g.beginPath();
-      g.moveTo(cx + sx * w * 0.1, h * 0.61);
-      g.quadraticCurveTo(cx + sx * w * 0.2, h * 0.68, cx + sx * w * 0.18, h * 0.77);
+      g.moveTo(cx + sx * w * 0.1, h * 0.615);
+      g.quadraticCurveTo(cx + sx * w * 0.17, h * 0.68, cx + sx * w * 0.16, h * 0.75);
       g.stroke();
     }
-    // 嘴：两头往上翘的一道弧，嘴角各一个小钩
+    // 嘴：抿着，嘴角只微微往上
     g.strokeStyle = ink(1);
-    g.lineWidth = h * 0.04;
+    g.lineWidth = h * 0.03;
     g.beginPath();
-    g.moveTo(cx - w * 0.14, h * 0.68);
-    g.quadraticCurveTo(cx, h * 0.78, cx + w * 0.14, h * 0.68);
+    g.moveTo(cx - w * 0.12, h * 0.69);
+    g.quadraticCurveTo(cx, h * 0.704, cx + w * 0.12, h * 0.69);
     g.stroke();
-    g.lineWidth = h * 0.02;
+    g.lineWidth = h * 0.016;
     for (const sx of [-1, 1]) {
       g.beginPath();
-      g.moveTo(cx + sx * w * 0.14, h * 0.68);
-      g.lineTo(cx + sx * w * 0.165, h * 0.66);
+      g.moveTo(cx + sx * w * 0.12, h * 0.69);
+      g.lineTo(cx + sx * w * 0.135, h * 0.68);
       g.stroke();
     }
   });
 }
 
 /**
- * 逆光的 matcap（尾声里爬上梯子的拆迁工人，M4）：中间是深暖灰，边上一圈晨雾的亮边——
- * 背着上午的扬尘天光，剪影有体积、帽檐和肩膀的轮廓亮起来，不再是一块平的黑洞。
+ * 逆光的 matcap（尾声里爬上梯子的拆迁工人，M4）：中间近黑，边上一圈晨雾的亮边——
+ * 背着上午的扬尘天光，剪影有体积、帽檐和肩膀的轮廓亮起来。M4 第 2 轮：中心从深暖灰压到近黑（原来读起来是白色塑料人偶）。
  */
 export function rimMatcapTexture(): THREE.CanvasTexture {
   return paintTexture(128, 128, (g, w, h) => {
-    g.fillStyle = '#1e1b19';
+    g.fillStyle = '#141210';
     g.fillRect(0, 0, w, h);
     const gr = g.createRadialGradient(w * 0.5, h * 0.52, 2, w * 0.5, h * 0.5, w * 0.5);
-    gr.addColorStop(0, '#2b2724');
-    gr.addColorStop(0.7, '#27231f');
-    gr.addColorStop(0.88, '#4a4139');
-    gr.addColorStop(0.97, '#9a8a78');
-    gr.addColorStop(1, '#a89886');
+    gr.addColorStop(0, '#1a1715');
+    gr.addColorStop(0.78, '#1c1916');
+    gr.addColorStop(0.92, '#3e362f');
+    gr.addColorStop(0.98, '#857766');
+    gr.addColorStop(1, '#948574');
     g.fillStyle = gr;
     g.beginPath();
     g.arc(w / 2, h / 2, w / 2, 0, Math.PI * 2);
@@ -1214,71 +1223,275 @@ function picTapeFace(g: G, w: number, h: number): void {
   g.textAlign = 'left';
 }
 
-/** 合影：CH1 机位的晨光里，老周戴着帽子睁着眼，旁边是一个没有头的身子，脚下一个粉笔叉。 */
+/**
+ * 合影（没拍到大照片时的手绘版，M4 第 2 轮重画）：CH1 门楣上往下俯拍的院子——湿地面、院门灯的暖光池，
+ * 左边是戴单帽、睁着眼抬头看镜头的老周（冷青的魂影，衬衫领、短袖、红袖箍），右边粉笔叉上站着没有头的身子
+ * （藏蓝值勤衬衫、领口、袖箍，脖子上是托头的支架），左上角压进来一截镜头自己的铁皮帽檐。黎明粉的调子、暗角、OSD。
+ * 原来是梯形、矩形拼的两个色块人形，像占位图。
+ */
 function picFinal(g: G, w: number, h: number): void {
+  const r = rng(1957);
+  // 湿地面：上远下近，远处发蓝、近处暖一点
   const bg = g.createLinearGradient(0, 0, 0, h);
-  bg.addColorStop(0, '#3b3a44');
-  bg.addColorStop(1, '#2a2a30');
+  bg.addColorStop(0, '#2c313c');
+  bg.addColorStop(0.45, '#3a3b42');
+  bg.addColorStop(1, '#4a4440');
   g.fillStyle = bg;
   g.fillRect(0, 0, w, h);
-  // 湿地面的反光与门口的光
-  const pool = g.createRadialGradient(w * 0.45, h * 0.75, 10, w * 0.45, h * 0.75, w * 0.6);
-  pool.addColorStop(0, 'rgba(255,190,120,0.45)');
-  pool.addColorStop(1, 'rgba(255,190,120,0)');
+  // 远处：院墙（砖）与院门（铁栏），画面上缘
+  g.fillStyle = '#4a3a33';
+  g.fillRect(0, h * 0.05, w, h * 0.13);
+  g.strokeStyle = 'rgba(30,22,18,0.55)';
+  g.lineWidth = 1;
+  for (let y = h * 0.05; y < h * 0.18; y += 7) {
+    g.beginPath();
+    g.moveTo(0, y);
+    g.lineTo(w, y);
+    g.stroke();
+  }
+  g.fillStyle = '#23262c';
+  g.fillRect(w * 0.52, h * 0.02, w * 0.4, h * 0.17);
+  g.strokeStyle = '#15171b';
+  g.lineWidth = 3;
+  for (let x = w * 0.54; x < w * 0.91; x += 10) {
+    g.beginPath();
+    g.moveTo(x, h * 0.03);
+    g.lineTo(x, h * 0.19);
+    g.stroke();
+  }
+  // 院门灯：右边立柱上一点烧白的灯芯，地上一片暖光池（湿地面上拉长的倒影）
+  const lampX = w * 0.93, lampY = h * 0.07;
+  const halo = g.createRadialGradient(lampX, lampY, 2, lampX, lampY, w * 0.22);
+  halo.addColorStop(0, 'rgba(255,236,200,1)');
+  halo.addColorStop(0.12, 'rgba(255,190,120,0.55)');
+  halo.addColorStop(1, 'rgba(255,170,90,0)');
+  g.fillStyle = halo;
+  g.fillRect(0, 0, w, h);
+  const pool = g.createRadialGradient(w * 0.68, h * 0.62, 10, w * 0.68, h * 0.62, w * 0.5);
+  pool.addColorStop(0, 'rgba(255,196,130,0.42)');
+  pool.addColorStop(0.6, 'rgba(255,170,100,0.12)');
+  pool.addColorStop(1, 'rgba(255,170,100,0)');
   g.fillStyle = pool;
   g.fillRect(0, 0, w, h);
-  // 粉笔叉
-  g.strokeStyle = 'rgba(240,236,226,0.85)';
-  g.lineWidth = 7;
+  const streak = g.createLinearGradient(lampX, h * 0.2, lampX - w * 0.1, h);
+  streak.addColorStop(0, 'rgba(255,200,140,0.35)');
+  streak.addColorStop(1, 'rgba(255,200,140,0)');
+  g.fillStyle = streak;
   g.beginPath();
-  g.moveTo(w * 0.56, h * 0.8);
-  g.lineTo(w * 0.7, h * 0.9);
-  g.moveTo(w * 0.7, h * 0.8);
-  g.lineTo(w * 0.56, h * 0.9);
-  g.stroke();
-  // 老周（青色魂影、戴帽）
-  const person = (x: number, color: string, head: boolean) => {
-    g.fillStyle = color;
+  g.moveTo(lampX - 10, h * 0.2);
+  g.lineTo(lampX + 14, h * 0.2);
+  g.lineTo(lampX - w * 0.04, h);
+  g.lineTo(lampX - w * 0.2, h);
+  g.closePath();
+  g.fill();
+  // 地面的水渍、碎光
+  for (let i = 0; i < 160; i++) {
+    g.fillStyle = `rgba(${r() < 0.5 ? '255,210,160' : '150,170,200'},${range(r, 0.03, 0.12)})`;
+    ellipse(g, range(r, 0, w), range(r, h * 0.2, h), range(r, 4, 26), range(r, 1, 4));
+    g.fill();
+  }
+  // 粉笔叉（身子脚下）
+  const bx = w * 0.64, by = h * 0.8;
+  stroke(g, [[bx - 44, by - 18], [bx + 44, by + 20]], { color: 'rgba(240,236,226,0.9)', width: 7, jitter: 1.6, passes: 4, seed: 91 });
+  stroke(g, [[bx + 42, by - 20], [bx - 42, by + 18]], { color: 'rgba(240,236,226,0.9)', width: 7, jitter: 1.6, passes: 4, seed: 92 });
+
+  // 一个俯拍的人：头（可无）、肩、短袖、胳膊、腿（上大下小，脚在画面下方）
+  const figure = (cx: number, top: number, o: { shirt: string; pants: string; skin: string; alpha: number; headless: boolean }) => {
+    g.save();
+    g.globalAlpha = o.alpha;
+    // 腿（俯拍：短，往下收）
+    g.fillStyle = o.pants;
     g.beginPath();
-    g.moveTo(x - 50, h * 0.86);
-    g.lineTo(x - 44, h * 0.46);
-    g.quadraticCurveTo(x, h * 0.4, x + 44, h * 0.46);
-    g.lineTo(x + 50, h * 0.86);
+    g.moveTo(cx - 34, top + 150);
+    g.lineTo(cx - 26, top + 232);
+    g.lineTo(cx - 6, top + 232);
+    g.lineTo(cx - 2, top + 160);
+    g.lineTo(cx + 2, top + 160);
+    g.lineTo(cx + 6, top + 232);
+    g.lineTo(cx + 26, top + 232);
+    g.lineTo(cx + 34, top + 150);
     g.closePath();
     g.fill();
-    g.fillRect(x - 36, h * 0.8, 28, h * 0.12);
-    g.fillRect(x + 8, h * 0.8, 28, h * 0.12);
-    if (head) {
-      ellipse(g, x, h * 0.36, 30, 36);
+    g.fillStyle = '#16161a';
+    ellipse(g, cx - 16, top + 236, 13, 6);
+    g.fill();
+    ellipse(g, cx + 16, top + 236, 13, 6);
+    g.fill();
+    // 胳膊（皮肤，垂在身侧）
+    g.fillStyle = o.skin;
+    g.beginPath();
+    g.moveTo(cx - 64, top + 72);
+    g.quadraticCurveTo(cx - 72, top + 120, cx - 60, top + 158);
+    g.lineTo(cx - 48, top + 156);
+    g.quadraticCurveTo(cx - 54, top + 118, cx - 46, top + 80);
+    g.closePath();
+    g.fill();
+    g.beginPath();
+    g.moveTo(cx + 64, top + 72);
+    g.quadraticCurveTo(cx + 72, top + 120, cx + 60, top + 158);
+    g.lineTo(cx + 48, top + 156);
+    g.quadraticCurveTo(cx + 54, top + 118, cx + 46, top + 80);
+    g.closePath();
+    g.fill();
+    // 衬衫（肩宽、往下收）+ 短袖
+    g.fillStyle = o.shirt;
+    g.beginPath();
+    g.moveTo(cx - 58, top + 40);
+    g.quadraticCurveTo(cx, top + 24, cx + 58, top + 40);
+    g.lineTo(cx + 72, top + 92);
+    g.lineTo(cx + 50, top + 100);
+    g.lineTo(cx + 40, top + 158);
+    g.lineTo(cx - 40, top + 158);
+    g.lineTo(cx - 50, top + 100);
+    g.lineTo(cx - 72, top + 92);
+    g.closePath();
+    g.fill();
+    // 门襟与扣子
+    g.strokeStyle = 'rgba(0,0,0,0.28)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(cx, top + 44);
+    g.lineTo(cx, top + 156);
+    g.stroke();
+    g.fillStyle = 'rgba(230,230,220,0.6)';
+    for (let i = 0; i < 4; i++) {
+      ellipse(g, cx + 4, top + 62 + i * 24, 2.2, 2.2);
       g.fill();
     }
+    // 领口：浅色的两片翻领
+    g.fillStyle = 'rgba(220,222,226,0.85)';
+    g.beginPath();
+    g.moveTo(cx - 20, top + 30);
+    g.lineTo(cx - 2, top + 52);
+    g.lineTo(cx - 30, top + 46);
+    g.closePath();
+    g.fill();
+    g.beginPath();
+    g.moveTo(cx + 20, top + 30);
+    g.lineTo(cx + 2, top + 52);
+    g.lineTo(cx + 30, top + 46);
+    g.closePath();
+    g.fill();
+    // 红袖箍（左臂）
+    g.fillStyle = '#b8322a';
+    g.beginPath();
+    g.moveTo(cx - 70, top + 70);
+    g.lineTo(cx - 50, top + 66);
+    g.lineTo(cx - 52, top + 84);
+    g.lineTo(cx - 72, top + 88);
+    g.closePath();
+    g.fill();
+    g.fillStyle = 'rgba(255,230,120,0.8)';
+    g.fillRect(cx - 66, top + 74, 10, 3);
+    g.restore();
   };
+
+  // —— 老周：冷青的魂影（衣服的本色透出一点），戴带帽檐的单帽，睁着眼抬头看镜头
+  const zx = w * 0.36, ztop = h * 0.3;
   g.save();
   g.shadowColor = 'rgba(143,211,214,0.9)';
-  g.shadowBlur = 18;
-  person(w * 0.4, 'rgba(143,211,214,0.8)', true);
+  g.shadowBlur = 22;
+  figure(zx, ztop, { shirt: '#6f9fa8', pants: '#3f6670', skin: '#a9d3d4', alpha: 0.82, headless: false });
   g.restore();
-  g.fillStyle = '#2E3A55';
-  g.fillRect(w * 0.4 - 34, h * 0.265, 68, 22);
-  paintZhouFace(g, w * 0.4, h * 0.37, 58, { ink: '#10302f', skin: null, shade: 'rgba(0,0,0,0)', weight: 1.2, seed: 1960 });
-  // 没有头的身子（藏蓝衬衫、红袖箍）
-  person(w * 0.63, '#2E3A55', false);
-  g.fillStyle = '#c23b2e';
-  g.fillRect(w * 0.63 - 56, h * 0.52, 12, 18);
-  g.fillStyle = '#8a8f9a';
-  g.fillRect(w * 0.63 - 8, h * 0.4, 16, 26);
-  // 黎明的粉色
-  g.fillStyle = 'rgba(242,184,160,0.18)';
+  // 脖子与脸（俯拍、抬着头：脸朝上，帽檐压在额头上）
+  g.fillStyle = 'rgba(169,211,212,0.85)';
+  g.fillRect(zx - 12, ztop + 14, 24, 22);
+  paintZhouFace(g, zx, ztop - 16, 62, { ink: '#123638', skin: 'rgba(176,216,216,0.92)', shade: 'rgba(20,70,74,0.35)', light: 'rgba(235,255,255,0.7)', weight: 1.15, seed: 1960, lookUp: true });
+  // 单帽：藏蓝的帽墙 + 帽檐（冲着镜头）
+  g.fillStyle = 'rgba(46,58,85,0.95)';
+  g.beginPath();
+  g.moveTo(zx - 30, ztop - 36);
+  g.quadraticCurveTo(zx, ztop - 70, zx + 30, ztop - 36);
+  g.lineTo(zx + 32, ztop - 30);
+  g.lineTo(zx - 32, ztop - 30);
+  g.closePath();
+  g.fill();
+  g.fillStyle = 'rgba(30,38,58,0.95)';
+  ellipse(g, zx, ztop - 30, 36, 8);
+  g.fill();
+  // 魂影的一圈冷光
+  const aura = g.createRadialGradient(zx, ztop + 90, 20, zx, ztop + 90, 170);
+  aura.addColorStop(0, 'rgba(143,211,214,0.12)');
+  aura.addColorStop(1, 'rgba(143,211,214,0)');
+  g.fillStyle = aura;
   g.fillRect(0, 0, w, h);
-  // 桶形畸变的暗角与 OSD
-  const v = g.createRadialGradient(w / 2, h / 2, h * 0.3, w / 2, h / 2, w * 0.7);
+
+  // —— 没有头的身子：藏蓝值勤衬衫、领口、袖箍；脖子上是托头的支架（一块金属托板、两颗螺丝）
+  const bxc = w * 0.64, btop = h * 0.33;
+  figure(bxc, btop, { shirt: '#2E3A55', pants: '#2a2c33', skin: '#b08a6e', alpha: 1, headless: true });
+  g.fillStyle = '#9a9ea6';
+  g.fillRect(bxc - 9, btop + 6, 18, 26);
+  g.fillStyle = '#c9ccd2';
+  ellipse(g, bxc, btop + 6, 24, 7);
+  g.fill();
+  g.fillStyle = '#5a5e66';
+  ellipse(g, bxc - 12, btop + 6, 2.5, 2);
+  g.fill();
+  ellipse(g, bxc + 12, btop + 6, 2.5, 2);
+  g.fill();
+
+  // 左上角：镜头自己的铁皮帽檐压进画里
+  g.fillStyle = '#2b2d31';
+  g.beginPath();
+  g.moveTo(0, 0);
+  g.lineTo(w * 0.2, 0);
+  g.quadraticCurveTo(w * 0.1, h * 0.03, 0, h * 0.11);
+  g.closePath();
+  g.fill();
+  g.strokeStyle = 'rgba(200,190,170,0.35)';
+  g.lineWidth = 2;
+  g.beginPath();
+  g.moveTo(w * 0.2, 0);
+  g.quadraticCurveTo(w * 0.1, h * 0.03, 0, h * 0.11);
+  g.stroke();
+
+  // 黎明粉的调子、暗角与 OSD
+  g.fillStyle = 'rgba(242,184,160,0.16)';
+  g.fillRect(0, 0, w, h);
+  const v = g.createRadialGradient(w / 2, h / 2, h * 0.32, w / 2, h / 2, w * 0.72);
   v.addColorStop(0, 'rgba(0,0,0,0)');
-  v.addColorStop(1, 'rgba(0,0,0,0.6)');
+  v.addColorStop(1, 'rgba(0,0,0,0.55)');
   g.fillStyle = v;
   g.fillRect(0, 0, w, h);
+  paperGrain(g, w, h, 58, 0.06);
   g.fillStyle = PALETTE.OSD;
   g.font = `bold 24px ${FONT_STACK}`;
-  g.fillText('CH1 2026-08-28 周五', 20, 34);
+  g.textAlign = 'left';
+  g.fillText('CH1 2026-08-28 周五 04:57:45', 20, 34);
+}
+
+/**
+ * 合影那一刻留下的大“照片”（M4 第 2 轮）：从刚渲染完的画布（PhotoSystem 的缩略图刚 renderNow() 过，同一任务里内容还在）
+ * 4:3 居中裁下来，按片尾卡的画面区尺寸缩放，提亮（sRGB ×1.9，约 +1.2EV 以上：卡片材质还压着 0.6 的中间调）、铺一层黎明粉、压一圈暗角。
+ */
+export function paintFinalPrint(src: CanvasImageSource & { width: number; height: number }): HTMLCanvasElement | null {
+  if (typeof document === 'undefined' || src.width <= 0 || src.height <= 0) return null;
+  const cv = document.createElement('canvas');
+  cv.width = PIC.w;
+  cv.height = PIC.h;
+  const g = cv.getContext('2d');
+  if (!g) return null;
+  let cw = src.width, ch = (src.width * 3) / 4;
+  if (ch > src.height) {
+    ch = src.height;
+    cw = (src.height * 4) / 3;
+  }
+  g.filter = 'brightness(1.9) contrast(1.04) saturate(0.9)';
+  g.drawImage(src, (src.width - cw) / 2, (src.height - ch) / 2, cw, ch, 0, 0, PIC.w, PIC.h);
+  g.filter = 'none';
+  g.globalCompositeOperation = 'soft-light';
+  g.fillStyle = 'rgba(242,184,160,0.35)';
+  g.fillRect(0, 0, PIC.w, PIC.h);
+  g.globalCompositeOperation = 'screen';
+  g.fillStyle = 'rgba(242,184,160,0.12)';
+  g.fillRect(0, 0, PIC.w, PIC.h);
+  g.globalCompositeOperation = 'source-over';
+  const v = g.createRadialGradient(PIC.w / 2, PIC.h / 2, PIC.h * 0.34, PIC.w / 2, PIC.h / 2, PIC.w * 0.72);
+  v.addColorStop(0, 'rgba(0,0,0,0)');
+  v.addColorStop(1, 'rgba(0,0,0,0.45)');
+  g.fillStyle = v;
+  g.fillRect(0, 0, PIC.w, PIC.h);
+  return cv;
 }
 
 /** 片尾照片卡的贴图（画面先画“记忆里的样子”；玩家自己拍的缩略图加载好后再盖上去，见 stage.ts）。 */

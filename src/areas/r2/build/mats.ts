@@ -7,7 +7,7 @@ import { newMat } from '../../../kit/geom';
 import { PAINT } from '../../../kit/canvas';
 import { TEMP_C } from '../../../data/render';
 import type { AdsAtlas, Atlas } from './paint';
-import { adsAtlas, courtyardTexture, donationTexture, grimeAtlas, menshenTexture, outsideTexture, signAtlas, terrazzo, wallWashTexture } from './paint';
+import { adsAtlas, courtyardDayTexture, courtyardTexture, donationTexture, grimeAtlas, menshenTexture, outsideTexture, signAtlas, terrazzo, wallWashTexture } from './paint';
 import { TEXT } from '../text';
 
 export interface R2Mats {
@@ -21,6 +21,8 @@ export interface R2Mats {
   signs: THREE.MeshStandardMaterial; grime: THREE.MeshStandardMaterial; posters: THREE.MeshStandardMaterial; posters2: THREE.MeshStandardMaterial;
   menshen: THREE.MeshStandardMaterial; donation: THREE.MeshStandardMaterial; outside: THREE.MeshBasicMaterial;
   emissiveWarm: THREE.Material; glowGap: THREE.MeshBasicMaterial; courtyard: THREE.MeshBasicMaterial[]; landingWin: THREE.MeshBasicMaterial; glass: THREE.Material;
+  /** 回放里上午的窗外（换进 courtyard/landingWin 的 map；M4 第 2 轮） */
+  courtyardDay: THREE.CanvasTexture;
   atlas: Atlas; grimeRect: (i: number) => readonly [number, number, number, number];
   /** 墙上的“牛皮癣”：喷涂电话、白灰盖的一条、小纸条、红章、身高线 */
   ads: THREE.MeshStandardMaterial; adsAtlas: AdsAtlas;
@@ -65,11 +67,11 @@ export function r2Mats(): R2Mats {
   const outside = new THREE.MeshBasicMaterial({ map: outsideTexture(), color: new THREE.Color('#ffffff').multiplyScalar(5.0) });
   outside.userData.tempC = 16;
   const courtyard = [2, 3, 4, 5].map(n => {
-    const c = new THREE.MeshBasicMaterial({ map: courtyardTexture(n), color: new THREE.Color('#ffffff').multiplyScalar(3.9) });
+    const c = new THREE.MeshBasicMaterial({ map: courtyardTexture(n), color: new THREE.Color('#ffffff').multiplyScalar(2.8) });
     c.userData.tempC = 16;
     return c;
   });
-  const landingWin = new THREE.MeshBasicMaterial({ map: courtyardTexture(1, 0.45), color: new THREE.Color('#ffffff').multiplyScalar(6.0) });
+  const landingWin = new THREE.MeshBasicMaterial({ map: courtyardTexture(1, 0.45), color: new THREE.Color('#ffffff').multiplyScalar(3.5) });
   landingWin.userData.tempC = 16;
   const glowGap = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffc98a').multiplyScalar(3.2) });
   glowGap.userData.tempC = TEMP_C.lamp;
@@ -112,7 +114,7 @@ export function r2Mats(): R2Mats {
     })(),
     outside,
     emissiveWarm: MATERIALS.emissive('#ffc98a', 0.5),
-    glowGap, courtyard, landingWin, glass: MATERIALS.glass(),
+    glowGap, courtyard, landingWin, courtyardDay: courtyardDayTexture(), glass: MATERIALS.glass(),
     atlas, grimeRect: grime.rect,
     ads: adsMat, adsAtlas: ads, wash,
   };

@@ -123,6 +123,14 @@ const DEFAULTS = { startRadius: 2.5, walkRadius: 8, lookAngle: 30 } as const;
 /** M4：进回放时转向片段焦点的时长（游戏秒）与俯仰下限（度） */
 const TURN_SEC = 0.4;
 const TURN_MIN_PITCH = -15;
+/**
+ * M4 第 2 轮整合：片段写了 focus（作者点名要看的东西，常在地上：樟木箱、蹲着的人影）时俯仰下限放到 −40°，
+ * “焦点就在脚边、只抬头不转身”的水平距离阈值从 0.8m 降到 0.35m（门口倒带时老周离玩家 0.6m 也要转过去）。
+ * 缺省焦点（人影关键帧均值）照旧 −15° / 0.8m：人影围着玩家时均值常落在脚边。
+ */
+const TURN_MIN_PITCH_FOCUS = -40;
+const NEAR_FOCUS = 0.8;
+const NEAR_FOCUS_EXPLICIT = 0.35;
 /** M4：回放开始时藏起残影点旋涡的搜索半径（水平，米） */
 const VORTEX_RADIUS = 1.2;
 const POSE_BLEND = 0.3;
@@ -331,6 +339,7 @@ export class ReplaySystem {
     const game = this.game;
     game.sys.npc.restoreYield();
     game.pipeline.post.pop('replay');
+    game.pipeline.post.vhsPaused = false;
     const vf = game.sys.viewfinder;
     game.cameras.applyLayerMasks({ vf: vf.on, lens: vf.lens, replay: false });
     // reason 'mode'：模式栈正在弹出/重置 replay（ReplayMode.exit 调来），不能再 pop 一次
@@ -364,6 +373,9 @@ export class ReplaySystem {
 
   update(dt: number): void {
     const a = this.act;
+    // M4 第 2 轮：暂停时 VHS 跟踪噪声条停在画面底部（CameraFxPass uVhsPaused）
+    const post = (this.game.pipeline as { post?: { vhsPaused: boolean } } | undefined)?.post;
+    if (post) post.vhsPaused = !!a && !a.playing;
     if (!a) return;
     const p = this.points.get(a.point);
     const seg = this.currentSeg(a);
@@ -426,7 +438,7 @@ export class ReplaySystem {
     if (target) {
       const eye = pl.eye;
       // 焦点就在脚边（人影围着玩家）时只抬头，不转身
-      if (Math.hypot(target.x - eye.x, target.z - eye.z) > 0.8) {
+      if (Math.hypot(target.x - eye.x, target.z - eye.z) > (seg.def.focus ? NEAR_FOCUS_EXPLICIT : NEAR_FOCUS)) {
         pl.lookAtPoint(target, 'fp');
         y1 = pl.yaw;
         p1 = pl.pitch;
@@ -435,7 +447,7 @@ export class ReplaySystem {
         pl.bodyYaw = b0;
       }
     }
-    p1 = Math.max(p1, TURN_MIN_PITCH);
+    p1 = Math.max(p1, seg.def.focus ? TURN_MIN_PITCH_FOCUS : TURN_MIN_PITCH);
     if (Math.abs(((y1 - y0 + 540) % 360) - 180) < 0.5 && Math.abs(p1 - p0) < 0.5) {
       this.turn = null;
       return;

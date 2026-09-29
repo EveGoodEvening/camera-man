@@ -12,7 +12,7 @@ import { GHOST_LU, PALETTE } from '../data/palette';
 import { TEMP_C } from '../data/render';
 import { rng, pick, range } from '../kit/rng';
 import {
-  ACCESSORIES, clothShoeTexture, floralTexture, robeTexture, uniformShirtTexture, zhongshanTexture,
+  ACCESSORIES, clothShoeTexture, floralTexture, robeTexture, uniformShirtTexture, zhongshanDetails, zhongshanTexture,
 } from './accessories';
 import {
   createHumanoidInternal, type FaceOpts, type HumanoidInternal, type HumanoidMaterialMode, type HumanoidRig, type HumanoidSpec, type HumanoidStyle,
@@ -50,6 +50,9 @@ type Look = NonNullable<CharacterOpts['look']>;
 function lookToMode(look: Look): HumanoidMaterialMode {
   return look === 'live' ? 'standard' : look === 'ghost' ? 'ghost' : look;
 }
+
+/** M4 第 2 轮：陆师傅魂影实际用的魂色——GHOST_LU #E8E0D0 往暖处偏约 10%（红 +、蓝 −）。 */
+const GHOST_LU_WARM = '#F4DEBE';
 
 function ghostColor(kind: CharacterKind): string {
   return kind === 'lu' ? GHOST_LU : PALETTE.GHOST;
@@ -192,9 +195,15 @@ function buildWang(o: CharacterOpts): Built {
 function buildLu(o: CharacterOpts): Built {
   const young = o.age === 'young';
   const spec: HumanoidSpec = { height: 1.82, build: 'slim', shirt: '#7E8288', pants: '#6A6D72', shoes: '#1d1a18', skin: '#C49A7E', sleeves: 'long', head: 'human' };
-  const face: FaceOpts = { skin: '#C49A7E', hair: young ? '#1e1a17' : '#9A9894', hairStyle: 'short', age: young ? 'young' : 'old', seed: 11 };
-  const h = createHumanoidInternal(spec, face, { torsoMap: zhongshanTexture('#7E8288') });
+  // M4 第 2 轮：花白头发压暗一点（#9A9894 在钠灯、CRT 的光里和肤色一个亮度，头顶读成秃的）
+  const face: FaceOpts = { skin: '#C49A7E', hair: young ? '#1e1a17' : '#6E6C68', hairStyle: 'short', age: young ? 'young' : 'old', seed: 11 };
+  // M4 第 2 轮：魂色偏暖（GHOST_LU #E8E0D0 往暖处偏 10%）、少保留衣服原色（灰中山装的色相偏冷，原色留得越多整个人越是冷灰白），
+  // 门岗的绿光里读成 GDD 写的暖白；中山装的口袋、扣子靠贴图亮度与立体的口袋盖读出来
+  const h = createHumanoidInternal(spec, face, { torsoMap: zhongshanTexture('#7E8288'), ghost: { baseAmt: 0.2, tint: GHOST_LU_WARM } });
   const s = h.s;
+  const suit = zhongshanDetails(h, '#7E8288');
+  h.joints.spine.add(suit);
+  h.adopt(suit);
   const glasses = ACCESSORIES.glasses(s);
   h.joints.headSlot.add(glasses);
   h.adopt(glasses);
@@ -202,7 +211,7 @@ function buildLu(o: CharacterOpts): Built {
   tlr.position.set(0, 0.2 * s, -0.155 * s);
   h.joints.spine.add(tlr);
   h.adopt(tlr);
-  return { h, props: { glasses, tlr } };
+  return { h, props: { glasses, tlr, suit } };
 }
 
 function buildZhou(o: CharacterOpts): Built {
@@ -339,6 +348,9 @@ function createHuang(o: CharacterOpts): CharacterRig {
   const manSpec: HumanoidSpec = { height: 1.4, build: 'slim', shirt: '#4E5A63', pants: '#3A3A36', shoes: '#1a1814', skin: '#B08A68', sleeves: 'long', head: 'human' };
   const man = createHumanoidInternal(manSpec, { skin: '#B08A68', hair: '#3a3026', hairStyle: 'short', age: 'old', seed: 1970 }, { torsoMap: clothes });
   man.root.name = 'huangMan';
+  const manSuit = zhongshanDetails(man, '#4E5A63');
+  man.joints.spine.add(manSuit);
+  man.adopt(manSuit);
   const manHat = ACCESSORIES.cap('felt', man.s, { low: true });
   man.joints.headSlot.add(manHat);
   man.adopt(manHat);
@@ -346,6 +358,9 @@ function createHuang(o: CharacterOpts): CharacterRig {
 
   const weasel = createHumanoidInternal({ ...manSpec, head: 'weasel' }, undefined, { torsoMap: clothes });
   weasel.root.name = 'huangWeasel';
+  const wSuit = zhongshanDetails(weasel, '#4E5A63');
+  weasel.joints.spine.add(wSuit);
+  weasel.adopt(wSuit);
   const wHat = ACCESSORIES.cap('felt', weasel.s);
   // 黄鼠狼的毡帽戴得靠后，露出尖脸和两只耳朵
   wHat.position.set(0, 0.215 * weasel.s, 0.03 * weasel.s);

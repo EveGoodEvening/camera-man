@@ -17,6 +17,7 @@
 //   WP2_SHOT=<png> node scripts/selftest/wp2.mjs   standalone 结束时把夹具截一张图
 
 import path from 'node:path';
+import { launchChromium } from '../lib/browserSlots.mjs';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -268,7 +269,7 @@ export async function standalone(o = {}) {
   });
   await server.listen();
   const port = server.config.server.port ?? 5288;
-  const browser = await chromium.launch({ args: CHROMIUM_ARGS });
+  const browser = await launchChromium(chromium, { args: CHROMIUM_ARGS }, 'wp2');
   const page = await browser.newPage({ viewport: { width: 800, height: 450 } });
   const problems = [];
   page.on('pageerror', e => problems.push(`pageerror: ${e}`));
@@ -329,7 +330,7 @@ async function pageAgainstDist(distDir) {
   const { preview } = await vite();
   const { chromium } = await playwright();
   const server = await preview({ root: ROOT, build: { outDir: distDir }, preview: { port: 4190, host: '127.0.0.1', strictPort: false } });
-  const browser = await chromium.launch({ args: CHROMIUM_ARGS });
+  const browser = await launchChromium(chromium, { args: CHROMIUM_ARGS }, 'wp2');
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 450 } });
     await page.goto(`http://127.0.0.1:${server.config.preview.port ?? 4190}/?${query}`);

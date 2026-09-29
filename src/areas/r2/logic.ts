@@ -25,10 +25,11 @@ import { yawToRotY } from '../../core/math';
 import { TEXT } from './text';
 import { DLG_R2 } from './dialogue';
 import { DLG } from '../../data/ids';
-import { FLOORS, LAMP_RANGE, LAMP_SEC, R2, floorOf, levelY } from './layout';
+import { CEIL, FLOORS, LAMP_RANGE, LAMP_SEC, R2, floorOf, levelY } from './layout';
 import type { R2World } from './build/floors';
 import type { R2Mats } from './build/mats';
 import { PAPER_TALK } from './anim';
+import { ceilingHaloTexture } from './build/paint';
 
 const LAMP_IDS: readonly InteractId[] = [OBJ.R2_LAMP_1F, OBJ.R2_LAMP_2F, OBJ.R2_LAMP_3F, OBJ.R2_LAMP_4F, OBJ.R2_LAMP_5F];
 export const litKey = (n: number): string => `lamp_lit_${n}`;
@@ -57,6 +58,12 @@ function ignite(t: number): number {
 
 interface LampState { remain: number; t: number }
 
+/**
+ * 声控灯的光（M4 第 2 轮，look-dev 调过）：lift = 光源在顶棚上方多高（虚光源，见 buildLogic）、angle/penumbra = 聚光半角与软边、
+ * range = 截止距离、gain = 相对 designLight(1.6/6) 的倍数（光源抬高后墙面离光源远了，补回来）、halo/haloR = 顶棚光晕的亮度与半径。
+ */
+const HALL = { lift: 0.6, angle: (72 * Math.PI) / 180, penumbra: 0.55, range: 8, gain: 3.0, halo: 0.35, haloR: 0.9 };
+
 export interface R2Runtime {
   update(dt: number): void;
   onFlag(e: GameEvents['flag']): void;
@@ -70,12 +77,32 @@ export function buildLogic(ctx: AreaContext, w: R2World, mats: R2Mats): R2Runtim
 
   // ———————————————— 灯（3 盏，进区域后数量固定）
   ctx.hemi(PALETTE.HALL_LAMP, '#0E0C0A', 0.12);
-  const hall = designLight('point', PALETTE.HALL_LAMP, 1.6, 6) as THREE.PointLight;
+  // 声控灯（M4 第 2 轮）：朝下的聚光，光源“虚放”在顶棚上方 HALL.lift 处（不投影，顶棚挡不住它；顶棚底面背对光源，不受直射）。
+  // 原来是灯泡下 0.55m 的点光：离主角头顶只有 5cm，摄像头脑袋烧成白块、顶棚上一大片白斑。光源抬高以后头顶到光源 ≥ 1.2m，
+  // 头、墙、地的受光比从几百倍收到几倍；顶棚上那一圈光晕改用贴在顶棚下的加法光晕（haloMesh）。
+  const hall = designLight('spot', PALETTE.HALL_LAMP, 1.6, 6) as THREE.SpotLight;
   hall.name = 'hallLamp';
   const hallCd = hall.intensity;
   hall.intensity = 0;
+  hall.angle = HALL.angle;
+  hall.penumbra = HALL.penumbra;
+  hall.distance = HALL.range;
   hall.position.set(...R2.lamp(1));
   ctx.light(hall);
+  const haloMat = new THREE.MeshBasicMaterial({
+    map: ctx.track(ceilingHaloTexture()), color: new THREE.Color(PALETTE.HALL_LAMP), transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, fog: false, toneMapped: true,
+  });
+  haloMat.userData.tempC = TEMP_C.lamp;
+  const halo = new THREE.Mesh(ctx.track(new THREE.PlaneGeometry(1, 1)), ctx.track(haloMat));
+  halo.name = 'lampHalo';
+  halo.rotation.x = Math.PI / 2;   // 面朝下
+  halo.frustumCulled = false;
+  halo.userData.noOcclude = true;
+  halo.userData.irHide = true;
+  halo.raycast = () => undefined;
+  halo.visible = false;
+  ctx.add(halo);
   const rec = designLight('point', PALETTE.REC, 0.35, 2) as THREE.PointLight;
   rec.name = 'recLamp';
   const recCd = rec.intensity;
@@ -172,7 +199,32 @@ export function buildLogic(ctx: AreaContext, w: R2World, mats: R2Mats): R2Runtim
   let entering = -1;   // ≥0：进 502 的动画已走的秒数
   let enterFrom: V3 | null = null;
   let npcHandle: NpcHandle | null = null;
-  let dimWang = 1;
+  let dimWang = 0;   // 模糊程度的当前值（见 applyDim）；进区域时灯总是灭的
+  // 模糊人影（vis 0 = 灯黑着，1 = 看清）：不透明度、原件细节（贴图、原色、道具实心）、魂色亮度一起降，人影横向抖一抖
+  const dimBase = new WeakMap<THREE.ShaderMaterial, { map: number; base: number; solid: number; color: THREE.Color }>();
+  const applyDim = (vis: number) => {
+    wangRig.setOpacity(0.2 + 0.8 * vis);
+    wangRig.root.traverse(o => {
+      const m = (o as THREE.Mesh).material as THREE.ShaderMaterial | undefined;
+      if (!m || !m.isShaderMaterial || !m.uniforms['uMapAmt']) return;
+      const u = m.uniforms as Record<string, THREE.IUniform>;
+      let b = dimBase.get(m);
+      if (!b) {
+        b = { map: u['uMapAmt']?.value as number, base: (u['uBaseAmt']?.value as number) ?? 0, solid: (u['uSolid']?.value as number) ?? 0, color: (u['uColor']?.value as THREE.Color).clone() };
+        dimBase.set(m, b);
+      }
+      if (u['uMapAmt']) u['uMapAmt'].value = b.map * vis;
+      if (u['uBaseAmt']) u['uBaseAmt'].value = b.base * vis;
+      if (u['uSolid']) u['uSolid'].value = b.solid * vis;
+      (u['uColor']?.value as THREE.Color | undefined)?.copy(b.color).multiplyScalar(0.3 + 0.7 * vis);
+    });
+    // 抖：每 1/12 秒换一个横向偏移（最多 3cm），像取景器里信号不稳
+    const amp = 0.03 * (1 - vis);
+    const q = Math.floor(g.time * 12);
+    const rx = Math.sin(q * 12.9898) * 43758.5453;
+    const rz = Math.sin(q * 78.233) * 12543.1234;
+    wangRig.root.position.set(amp * (2 * (rx - Math.floor(rx)) - 1), 0, amp * 0.5 * (2 * (rz - Math.floor(rz)) - 1));
+  };
   const startEnter = () => {
     entering = 0;
     enterFrom = npcHandle ? [npcHandle.root.position.x, npcHandle.root.position.y, npcHandle.root.position.z] : R2.wangDoor;
@@ -214,14 +266,16 @@ export function buildLogic(ctx: AreaContext, w: R2World, mats: R2Mats): R2Runtim
     },
     update: (npc, dt) => {
       const s = ctx.state;
-      // 还没见过面：灯黑着时她只是台阶上一团模糊的影子（GDD P3 解法 1），灯亮了才看得清
+      // 还没见过面：灯黑着时她只是台阶上一团模糊的影子（GDD P3 解法 1），灯亮了 0.4 秒内看清（M4 第 2 轮：原来只把不透明度压到 0.32，
+      // 魂影的边缘光与衣服花色、篮子照样清楚——现在再去掉原件细节、压暗魂色，并让整个人影像信号不好一样轻轻抖）
       if (!s.flag(F.R2_WANG_MET)) {
-        const want = s.temp(litKey(1)) === true ? 1 : 0.32;
-        dimWang = dimWang + (want - dimWang) * Math.min(1, dt * 4);
-        wangRig.setOpacity(dimWang);
+        const want = s.temp(litKey(1)) === true ? 1 : 0;
+        dimWang = dimWang + (want - dimWang) * Math.min(1, dt * 6);
+        if (want === 1 && dimWang > 0.985) dimWang = 1;
+        applyDim(dimWang);
       } else if (dimWang < 1) {
         dimWang = 1;
-        wangRig.setOpacity(1);
+        applyDim(1);
       }
       // 门神放行后：她走进 502 门、身影淡掉（然后按 flags 不在场）
       if (entering >= 0 && enterFrom) {
@@ -412,7 +466,12 @@ export function buildLogic(ctx: AreaContext, w: R2World, mats: R2Mats): R2Runtim
   const pulse = new Map<string, number>();
   let winDay = false;
   const DAY_WIN = new THREE.Color('#e8f0ff').multiplyScalar(3.4);
-  const winBase = new Map<THREE.MeshBasicMaterial, THREE.Color>([...mats.courtyard, mats.landingWin].map(c => [c, c.color.clone()] as const));
+  const winBase = new Map<THREE.MeshBasicMaterial, { color: THREE.Color; map: THREE.Texture | null }>(
+    [...mats.courtyard, mats.landingWin].map(c => [c, { color: c.color.clone(), map: c.map }] as const),
+  );
+  // 回放里换下来的贴图不挂在任何材质上：交给区域释放（挂着的再释放一次也无妨）
+  ctx.track(mats.courtyardDay);
+  for (const b of winBase.values()) if (b.map) ctx.track(b.map);
   return {
     update(dt) {
       const s = ctx.state;
@@ -460,17 +519,23 @@ export function buildLogic(ctx: AreaContext, w: R2World, mats: R2Mats): R2Runtim
         if (f.n === n) curLevel = k;
       });
       const L = R2.lamp(n);
-      // 点光放在灯泡下方 0.55m：灯泡紧贴顶棚，光源也贴着会把灯头上方那一块顶棚照爆（整屏泛白）；
-      // 往下挪一截，顶棚上只剩一圈昏黄的光晕，墙裙与地面的受光几乎不变
-      hall.position.set(L[0], L[1] - 0.55, L[2]);
+      const cfg = HALL;
+      hall.position.set(L[0], levelY(n) + CEIL + cfg.lift, L[2]);
       if (past === 'day') {
         // 白天：天光从南窗进来（窗子白得发亮），走廊整个亮一截
         hall.color.set('#E3E9F2');
-        hall.intensity = hallCd * 1.8;
-        hall.position.set(0, levelY(n) + 1.9, 1.9);
+        hall.intensity = hallCd * cfg.gain * 1.8;
+        hall.position.set(0, levelY(n) + CEIL + cfg.lift, 1.9);
       } else {
         hall.color.set(n === 3 ? '#FFE9C8' : PALETTE.HALL_LAMP);
-        hall.intensity = hallCd * curLevel;
+        hall.intensity = hallCd * cfg.gain * curLevel;
+      }
+      // 顶棚光晕：随灯的亮度（含点亮那一下的过冲与四楼的抖）
+      halo.visible = curLevel > 0.01;
+      if (halo.visible) {
+        halo.position.set(L[0], levelY(n) + CEIL - 0.004, L[2]);
+        halo.scale.setScalar(cfg.haloR * 2);
+        haloMat.color.set(n === 3 ? '#FFE9C8' : PALETTE.HALL_LAMP).multiplyScalar(cfg.halo * Math.min(1.3, curLevel));
       }
       // 回放里的白天：窗外是亮的（HDR 白），夜里恢复钠灯夜景
       const dayWin = past === 'day';
@@ -478,7 +543,9 @@ export function buildLogic(ctx: AreaContext, w: R2World, mats: R2Mats): R2Runtim
         winDay = dayWin;
         for (const c of [...mats.courtyard, mats.landingWin]) {
           const base = winBase.get(c);
-          if (base) c.color.copy(dayWin ? DAY_WIN : base);
+          if (!base) continue;
+          c.color.copy(dayWin ? DAY_WIN : base.color);
+          c.map = dayWin ? mats.courtyardDay : base.map;
         }
       }
       // 浮尘

@@ -230,7 +230,8 @@ export function buildCss(): string {
 /* ================================================================ 字幕、反馈条（#subs） */
 .cm-subs {
   /* M4 整合：宽度两边各让出 14em（左下角时辰牌 2.2em + 约 8.5em、其上方的“得到：……”最宽 11.8em），长字幕/两行字幕不再压住它们 */
-  position: absolute; left: 50%; bottom: 7%; transform: translateX(-50%); width: min(92%, 58em, calc(100% - 28em));
+  /* M4 第 2 轮：窗口很窄（< 约 800px）时 calc(100% - 28em) 会把字幕挤成一条窄柱、竖着冲出上沿——宽度至少保留 60% */
+  position: absolute; left: 50%; bottom: 7%; transform: translateX(-50%); width: min(92%, 58em, max(calc(100% - 28em), 60%));
   display: flex; flex-direction: column; align-items: center; gap: 0.35em; transition: bottom 0.2s;
 }
 .cm-ui.cm-dlg-open .cm-subs { bottom: calc(4.5% + 11em); }
@@ -578,7 +579,7 @@ export function buildCss(): string {
 .cm-pause-title small { display: block; margin-top: 0.3em; font-size: 0.36em; letter-spacing: 0.2em; font-family: ${MONO_FONT}; color: var(--osd); }
 .cm-settings {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(94%, 58em); max-height: 90%; overflow-y: auto; box-sizing: border-box;
-  padding: 1em 1.6em 1em; background: var(--panel-bg); border: 1px solid var(--panel-line); box-shadow: 0 16px 50px rgba(0, 0, 0, 0.7);
+  padding: 1em 1.6em 1em; background: #080b14; border: 1px solid var(--panel-line); box-shadow: 0 16px 50px rgba(0, 0, 0, 0.7);
 }
 .cm-settings-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(19em, 1fr)); column-gap: 2.4em; }
 .cm-settings h2 { margin: 0 0 0.6em; font-weight: normal; font-size: 1.25em; letter-spacing: 0.4em; }
@@ -637,9 +638,10 @@ export function buildCss(): string {
   top: auto; bottom: calc(4.5% + var(--cm-dlg-h, 11em) + 0.8em);
 }
 /* 取景器（不在对话里）：底部从下往上依次是倍率条 → 操作提示行 → 读字框 → 字幕；反馈条/教学条挪到画框上部（OSD 行之下、准星之上） */
-.cm-ui.cm-vf-on .cm-subs { bottom: calc(5% + 3.4em); }
-.cm-ui.cm-vf-on.cm-read-on .cm-subs { bottom: calc(5% + 3.9em + var(--cm-read-h, 4em)); }
-.cm-ui.cm-vf-on .cm-read { bottom: calc(5% + 3.4em); }
+/* M4 第 2 轮：按 4:3 画框算（窄而高的窗口里画框上下有黑边，按视口算的 5% 会压到画框底部的倍率条与按键行上）；16:9 时与原来相同 */
+.cm-ui.cm-vf-on .cm-subs { bottom: calc(100% - var(--fy) - var(--fh) + var(--fh) * 0.05 + 3.4em); }
+.cm-ui.cm-vf-on.cm-read-on .cm-subs { bottom: calc(100% - var(--fy) - var(--fh) + var(--fh) * 0.05 + 3.9em + var(--cm-read-h, 4em)); }
+.cm-ui.cm-vf-on .cm-read { bottom: calc(100% - var(--fy) - var(--fh) + var(--fh) * 0.05 + 3.4em); }
 .cm-ui.cm-vf-on .cm-toasts { top: calc(var(--fy) + var(--fh) * 0.15); }
 .cm-ui.cm-vf-on.cm-read-on .cm-vf-hint { bottom: calc(5% + 3.9em + var(--cm-read-h, 4em)); }
 /* “巡夜本上多了一行字”：取景器里挪进画框、镜头/倍率那一行下面，不再盖住“常光/红外 1×” */
@@ -647,7 +649,9 @@ export function buildCss(): string {
 /* 色彩辅助字幕在取景器里让到聚焦名下面 */
 .cm-ui.cm-vf-on .cm-colorhint { top: calc(50% + 4.7em); }
 /* 取景器常驻的操作提示（倍率条上方一行，半透明；回放中、叠在面板上时隐藏） */
-.cm-vf-keys { position: absolute; left: 50%; bottom: calc(5% + 2.55em); transform: translateX(-50%); font-size: 0.72em; opacity: 0.62; white-space: nowrap; }
+/* M4 第 2 轮：原来 0.72em × 0.8em、62% 不透明度（720p 下 10px），几乎读不出——放大到 0.9em、85%，键帽不小于 11px；bottom 折算后与原来同高 */
+.cm-vf-keys { position: absolute; left: 50%; bottom: calc(5% + 2.04em); transform: translateX(-50%); font-size: 0.9em; opacity: 0.85; white-space: nowrap; }
+.cm-vf-keys .cm-kbd { font-size: max(11px, 0.78em); }
 .cm-vf-keys .cm-keyhints { flex-wrap: nowrap; gap: 0.3em 1.2em; color: #dfe6df; text-shadow: 0 1px 2px #000; }
 .cm-vf.cm-ir-on .cm-vf-keys .cm-keyhints { color: #fff; }
 
@@ -706,6 +710,39 @@ export function buildCss(): string {
 .cm-title-warn { position: absolute; left: 9%; top: calc(56% - 2.4em); padding: 0.2em 0.9em; background: rgba(30, 18, 6, 0.88); color: #ffd9a0; border: 1px solid rgba(255, 154, 60, 0.6); border-radius: 2px; font-size: 0.9em; }
 /* 设置页键盘选中行 */
 .cm-set-row.cm-sel { background: rgba(232, 195, 90, 0.1); box-shadow: inset 3px 0 0 var(--tudi-gold); }
+
+/* ================================================================ M4 第 2 轮 */
+/* 标题菜单：覆盖进度的二次确认（“再按一次：覆盖当前进度”） */
+.cm-menu-item.cm-warn { color: #ffd9a0; letter-spacing: 0.12em; }
+.cm-menu-item.cm-warn::before { opacity: 1; color: #ff9a3c; }
+/* 录像机/监控台面板（deck）开着、没举取景器：字幕层升到面板之上，字幕排在 deck 上沿之上；反馈条挪到画面上部，物品提示抬到 deck 之上 */
+.cm-ui.cm-deck-open #subs { z-index: 6; }
+.cm-ui.cm-deck-open .cm-subs { bottom: calc(2.5% + var(--cm-deck-h, 11em) + 0.8em); }
+.cm-ui.cm-deck-open .cm-toasts { top: 16%; }
+.cm-ui.cm-deck-open .cm-toasts-item { bottom: calc(2.5% + var(--cm-deck-h, 11em) + 0.8em); }
+/* 暂停页、设置页下：冻结的字幕、反馈条、物品提示、新页提示不透出来（系统提示——上下文丢失——照常） */
+.cm-ui.cm-pause-on .cm-subs, .cm-ui.cm-pause-on .cm-toasts, .cm-ui.cm-pause-on .cm-toasts-item, .cm-ui.cm-pause-on .cm-toasts-page { visibility: hidden; }
+/* 拍照卡片（画框右下角）显示时字幕收窄，右端不压到卡片（左右对称：宽度 = 2 ×（卡片左沿 − 屏幕中线）− 留白） */
+.cm-ui.cm-photo-on .cm-subs {
+  width: min(92%, 58em, max(calc(100% - 28em), 60%), max(40%, calc(2 * (var(--fx) + var(--fw) - 1.6em - min(24vmin, 13em)) - 100% - 1.6em)));
+}
+/* 取景器聚焦名：画在准星上方（读字框显示时/取件格）或右侧（倍率 ≥ 3×，下方正是要看的嘴、眼珠） */
+.cm-marker.cm-vf-focus.cm-vf-above .cm-marker-tag { top: auto; bottom: 0; }
+.cm-marker.cm-vf-focus.cm-vf-right .cm-marker-tag { top: 0; transform: translateY(-50%); align-items: flex-start; opacity: 0.78; }
+/* 挑选器：已用的物品沉到底部并变暗；物品栏超出一屏时底部渐隐 + “▼” */
+.cm-album.cm-picking .cm-item.cm-used { opacity: 0.5; }
+.cm-items-col { position: relative; min-height: 0; display: flex; flex-direction: column; }
+.cm-items-col .cm-items { flex: 1 1 auto; }
+.cm-items-fade { display: none; position: absolute; left: 0; right: 0; bottom: 0; height: 3em; pointer-events: none; background: linear-gradient(to bottom, rgba(27, 24, 20, 0), #1b1814 80%); }
+.cm-items-more { display: none; position: absolute; left: 50%; bottom: 0.2em; transform: translateX(-50%); color: var(--tudi-gold); font-size: 0.85em; pointer-events: none; animation: cm-bob 1.2s ease-in-out infinite; }
+.cm-items-col.cm-can-scroll .cm-items-fade, .cm-items-col.cm-can-scroll .cm-items-more { display: block; }
+/* WebGL 上下文丢失：常驻遮罩（原来是一条 4 秒就消失的反馈条，恢复不了时只剩黑屏） */
+.cm-lost { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.88); pointer-events: auto; }
+.cm-lost-box { max-width: min(86%, 34em); padding: 0.7em 1.6em; text-align: center; color: #ffd9a0; background: rgba(30, 18, 6, 0.9); border: 1px solid rgba(255, 154, 60, 0.6); border-radius: 2px; letter-spacing: 0.06em; line-height: 1.7; }
+/* 窄窗口（< 900px）：字幕整体上移，避开左下角时辰牌与物品提示 */
+@media (max-width: 900px) {
+  .cm-subs { bottom: calc(7% + 3.4em); }
+}
 
 `;
 }

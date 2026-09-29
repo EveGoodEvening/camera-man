@@ -18,8 +18,7 @@ export const SHOTS: readonly ShotDef[] = [
   {
     id: 'shot.r4.entry_zi', label: '子时·楼梯口望向东：空通道、一闪一闪的灯管、褪色壁画、关着的报刊亭、东头的围挡',
     preset: 'zi', view: { player: [-16.6, 0.9], yaw: 92, pitch: 2, mode: 'tp' }, keys: ['r4.kiosk'],
-    // M4 整合：亮点只有一根灯管与“安全出口”灯箱，> 0.8 的像素贴着 0.5%（M4 主角换了短袖人身，挡掉一点；0.46%），阈值放到 0.7
-    highlight: 0.7,
+    // （M4 整合曾因“> 0.8 的像素贴着 0.5%”放到 highlight 0.7；第 2 轮的亮核判据（模糊后 P99.5）实测 0.86，撤掉）
   },
   {
     id: 'shot.r4.hoarding_zi', label: '子时·东头地铁施工围挡与黄闪灯',

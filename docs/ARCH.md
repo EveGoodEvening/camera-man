@@ -834,6 +834,8 @@ export class InputManager {
 - 在 `lock` 策略的模式里发生**意外解锁**（`pointerlockchange` 且不是脚本主动退出，典型是玩家按了 Esc：锁定状态下 Chrome 用 Esc 解锁，页面通常收不到这次 keydown）→ 压入 `mode.pause`（显示暂停菜单与“点击继续”；M1d：经 `Game.requestPause()`，区域/楼层/传送的过渡期间推迟到过渡结束，§4.5）。所以“取景器里按 Esc 退出取景器”只在未锁定（`?nolock=1`、锁定不可用）时生效；锁定时 Esc 的效果是暂停，暂停菜单“继续”后回到取景器。
 - `requestPointerLock()` 返回的 Promise 一律 `.catch(() => {})`，被拒绝时 1 秒后在下一次用户点击时重试；不得留下未处理的 rejection（会变成 console.error）。
 - 锁定不可用（`?test=1`、`?nolock=1`、浏览器不支持）时降级：按住左键拖拽转视角（`lookDelta` 来自 `pointermove` 且 `buttons & 1`）；此时左键的“快门”在松开且拖动距离 < 4px 时才算点击。`?test=1` 下从不请求锁定。
+- M4 第 2 轮：本页面**从没锁上过**、`requestPointerLock` 又连续 2 次被拒（部署在没有 `allow="pointer-lock"` 的 iframe、浏览器策略禁用）→ `InputManager.dragFallback = true`，`lockAvailable` 从此为假，走上一条的拖拽路径、收起“点击继续”，并提示一次 `STRINGS.boot.lockFallback`（“无法锁定鼠标：按住左键拖动来转视角”）。锁上过一次就不再降级（Chrome 退出锁定后约 1 秒内的正常拒绝不算）。
+- M4 第 2 轮：键盘自动重复（`e.repeat`）只放行方向键与 PageUp/PageDown，而且只通知 `onButton` 监听者（文档/巡夜本连续翻页、设置页滑块连续调），不改“按住”状态、不入队；菜单页（标题/暂停/设置）开着时按下的键（Esc 除外）只给监听者、不入队（附录 A 表下注）。
 
 ```ts
 // core/actions.ts
@@ -1389,6 +1391,7 @@ export interface GameApi {
   player: {
     readonly position: THREE.Vector3; readonly eye: THREE.Vector3; readonly yaw: number;
     teleport(p: V3, yaw?: number, fadeSec?: number): Promise<void>;
+    look?(yaw: number, pitch: number): void;   // M4 第 2 轮整合补写：只改视角（俯仰按第三人称范围钳制），不转身体、不动位置；过场收尾 {cam:'player'} 之前至少一帧调用（开场，§15.7.4）
     readonly model: {
       setPose(p: Pose, blendSec?: number): void;          // 开场坐在椅子上
       setBodyOpacity(a: number, sec?: number): void;      // P14 身子一点点空下去
@@ -1531,6 +1534,7 @@ export interface InteractableDef {
   menuVerb?: 'show' | 'use';                       // 动作菜单里显示“出示…”还是“使用…”（NPC/纸像默认 show，物体默认 use）
   colorHint?: Dyn<string | undefined>;             // “色彩辅助”打开时悬停显示的字幕，按状态现算，undefined = 不显示；不进角标。R3 容器只在白灯下给颜色：
                                                    //   s => (s.temp('safelight') ? undefined : '黄色')（R3 拉灯绳时 ctx.setTemp('safelight', true/false)；GDD §10.4、P7）
+  vfLabel?: 'below' | 'above' | 'right';           // M4 第 2 轮：取景器里准星对着它时名字画在准星环哪一侧（缺省：读字框显示时上方、倍率 ≥ 3× 右侧、否则下方；取件格用 'above'，§15.7.3）
 }
 export interface OfferTable {
   accept: Partial<Record<ThingId, Handler>>;       // 命中：执行（Handler 负责 E.used 等）
@@ -2143,7 +2147,8 @@ export type CutStep =
   | { run: (g: GameApi, ctx: AreaContext) => Awaitable<unknown> }         // 一次性；ctx 是当前区域的 AreaContext，可 ctx.add 尾声道具（挖掘机、平掉的院子），随区域卸载释放
   | { during: number; tick: (g: GameApi, t01: number, dt: number, ctx: AreaContext) => void } // 持续若干秒，逐帧回调（游戏时间）
   | { await: 'shutter' | 'zoom'; zoom?: ZoomLevel; prompt?: string; early?: string }   // 等玩家按快门/变焦
-  | { music: MusicCue } | { sfx: SfxCue } | { post: { key: string; params: Partial<FxParams> } | { pop: string } };
+  | { music: MusicCue } | { sfx: SfxCue } | { post: { key: string; params: Partial<FxParams> } | { pop: string } }
+  | { hurry: number | null };                                            // M4 第 2 轮：此后按住空格时计时步骤 ×hurry 推进（片尾字幕这类不可跳过但可快进的段落；null 关掉，§15.7.3）
 export interface CutsceneDef { id: CutsceneId; steps: readonly CutStep[]; skippable?: 'never' | 'rewatch'; restore?: boolean }
 export class CutsceneSystem {
   readonly active: { id: CutsceneId; step: number; awaiting: 'shutter' | 'zoom' | null } | null;
@@ -3202,7 +3207,7 @@ export async function launch({ query = 'new=1&test=1&lockstep=1&quality=low', vi
 | `walkthrough.mjs` | GDD §11 的 58 步，逐步断言 | 结局 `ending === 'nanke'`；`--main` 跳过〔可选〕步骤，结局 `ending === 'main'`；另有变体 `--shuttle` 在步骤 48 用 `vcr('shuttle', 1)` 走进降速区代替 seek；`--reload` 在步骤 12、26、37、45、52 之后 reload 复验；`--hints` 每步前 `hint()`；M3 补写 `--yin`：通关后标题没有“继续”、有“从寅时重来”，`continueGame('save.yin')` 再把步骤 47–58 通关一次，标题仍没有“继续”（与 `--hints` 同用时另断言 P14 且 1 ≤ n < 6 时出现南柯追加提示） |
 | `roundtrip.mjs`（M3） | 寅时预置下 r1 ↔ r2/r2_502/r3/r4 各先往返 2 次预热、在 R1 记基线，再往返 5 次（走真实出入口） | `geometries`/`textures` 回到基线 ±`BUDGET.resourceDrift`（§13.3）；回到 R1 时灯数恒定；无页面错误 |
 | `regions/<id>.mjs` | `?debug=1` 下用 `setState(PRESETS.x)` 预置前置，跑该区域在 §11 中的全部步骤 + 各谜题主要错误反馈 + 关键门槛的 `walk()` | 全部断言通过（§15.4） |
-| `shots.mjs [--area r3] [--quality high]` | 对每个 `AreaDef.shots` 截图到 `test-artifacts/shots/<shotId>.png`，并记录 `perf()` 到 `test-artifacts/shots/perf.json` | 无报错；每张图（UI 隐藏时）**平均亮度在 [0.05, 0.35]**、亮度 > 0.8 的像素 ≥ 0.5%（有高光，灯与霓虹真的亮）；`ShotDef.keys` 列出的关键交互物锚点投影处 5×5 像素平均亮度 > 0.04（看得清） |
+| `shots.mjs [--area r3] [--quality high]` | 对每个 `AreaDef.shots` 截图到 `test-artifacts/shots/<shotId>.png`，并记录 `perf()` 到 `test-artifacts/shots/perf.json` | 无报错；每张图（UI 隐藏时）**平均亮度在 [0.05, 0.35]**、有一块成片的亮核（M4 第 2 轮：3×3 盒式模糊后亮度的第 99.5 百分位 ≥ `highlight` − 0.08，缺省 0.72；原来是“亮度 > 0.8 的像素 ≥ 0.5%”，被雨丝、颗粒、雪花这些单像素噪点左右）；`ShotDef.keys` 列出的关键交互物锚点投影处 5×5 像素平均亮度 > 0.04（看得清） |
 | `check.mjs` | 静态检查（§14.2） | 无违规 |
 
 `walkthrough.mjs` 的步骤写成数据（便于对照 GDD）：
@@ -3318,7 +3323,7 @@ THREE.ColorManagement.enabled = true;                      // 默认值：Color/
 | 贴图各向异性 | 1 | 4 | 4 |
 
 - **默认 `mid`**（集显 1080p 60fps 的把握更大）；设置里可改；测试用 `?quality=low`。
-- **动态分辨率**：以最近 2 秒平均帧时为依据，在 `DYN_RES.scales` `{0.7, 0.85, 1.0}` 三级之间切换，像素比 = scale × min(devicePixelRatio, 本档上限)（M1d 更正：原来是绝对像素比 {1.0, 1.25, 1.5}，在 DPR 1 的屏幕——目标机型集显 1080p——上全被钳成 1，降档毫无作用；UI 是 DOM，低于原生分辨率不糊字）；平均帧时 > 18ms 降一级，< 13ms 且持续 4 秒升一级，每次切换后冷却 3 秒，切换走 §4.7.1 的 `resize()`；`?test=1` 与截图时关闭。
+- **动态分辨率**：以最近 2 秒平均帧时为依据，在 `DYN_RES.scales` `{0.7, 0.85, 1.0}` 三级之间切换，像素比 = scale × min(devicePixelRatio, 本档上限)（M1d 更正：原来是绝对像素比 {1.0, 1.25, 1.5}，在 DPR 1 的屏幕——目标机型集显 1080p——上全被钳成 1，降档毫无作用；UI 是 DOM，低于原生分辨率不糊字）；平均帧时 > 18ms 降一级，< 13ms 且持续 4 秒升一级，每次切换后冷却 3 秒，切换走 §4.7.1 的 `resize()`；`?test=1` 与截图时关闭。M4 第 2 轮：帧间隔按 **rAF 的时间戳**（垂直同步时刻，`Game.onFrame` 写进 `RenderPipeline.frameStamp`）计——渲染结束后的 `performance.now()` 带着相邻两帧工作量之差的抖动，60Hz 下“贴着垂直同步也升档”的判据永远不成立；暂停页不渲染期间不采样（§15.7.3）。
 - 运行中改画质：`game.requestReenter('quality')`（雨丝数量、阴影、RT 尺寸在 build 时读取；M1d：在安全时重进，§6.4）。
 - **辅助 RT 的调度**（M1d）：镜面每 `mirrorEvery` 帧（`frameNo % every === 0`）且在门卫室内；CH2 与录像带每 `feedEvery` 帧、与镜面错开一帧（`(frameNo + 1) % every === 0`），CH2 与 CH1 自身画面只在屏幕看得见时刷新（§6.11）。
 - 后期只有 3 个全屏 pass（RenderPass、Bloom 多级、CameraFxPass），OutputPass 已并入 CameraFxPass。
@@ -3594,6 +3599,7 @@ R1-world 与 R1-finale 同时开工：R1-finale 先对着 M1a 占位 `world.ts` 
   已看级别按 `${id}#${stage}` 记（阶段一变从第 1 级重新给）；冷却中重复同一级时字幕后接 `STRINGS.feedback.hintLater`（第 3 级不接）。
 - **回放**：`ReplayPointDef.marker?`（旋涡对象；不给时按 `userData.residueVortex` 在残影点 1.2m 内找）回放期间藏起；`ReplaySegmentDef.focus?: V3`——进入片段时镜头 0.4s 转向焦点
   （缺省 = 片段人影全部关键帧的平均点、胸口高），俯仰至少 −15°；玩家自己动视角（或 aimAt）就停止转向。
+  **M4 第 2 轮整合更正**：片段写了 `focus` 时俯仰下限 −40°、“焦点离眼睛水平 < 0.35m 才只抬头不转身”（缺省焦点仍是 −15° / 0.8m），见 §15.7.4。
 - **称呼面板** `NamingDef.wrongWho?: SpeakerId`：选错的反馈作为此人的字幕出现。**过场** `await` 步骤的 prompt 每 5 秒重发，等变焦没写 prompt 时默认“滚轮：变焦”。
 - **读字**：第一次因为倍率不够读不出时顺带教“滚轮：变焦”（与 `E.tutorial` 同一个去重键）；`STRINGS.feedback.readTooSmall` =“（字太小了，滚轮拉近点。）”。
 - **巡夜本**：`JournalMode.enter` 没有 arg（翻开巡夜本本身）时 `JournalSystem.markVisibleSeen()`，合上后不再弹“多了一行字”。文档阅读器的讣告遮挡只画一段斜纹。
@@ -3629,6 +3635,90 @@ R1-world 与 R1-finale 同时开工：R1-finale 先对着 M1a 占位 `world.ts` 
   `core.mjs` 34/34（837s）；walkthrough 全程 58/58（245s）、`--main` 50 + 可选跳过 8（190s）、`--reload`（12/26/37/45/52 五次复验）58/58（270s）、`--yin --hints` 58 + 从寅时重来 12 步 + 南柯追加提示 3 次（409s）；
   `roundtrip.mjs` r1 ↔ r2/r2_502/r3/r4 × 5 的 geometries/textures/programs 全部 +0（387s）；`shots.mjs` 全部区域 80 张 0 问题（1758s）。
   另在只差截图配置与字幕 CSS 的前一构建上跑了 `regions/r3`（步骤 11 + 用例 14/14）与 `regions/r1_finale`（步骤 26 + 用例 20/20），并用探针逐阶段核对了 P1/P6/P12/P13/P14 的分阶段提示文本、截图核对了字幕/物品提示/时辰牌不再互压。
+
+#### 15.7.3 M4 引擎修复（owner = engine，第二轮评审）的补写
+
+只加不删，已有签名不变（区域代码同时在改）。回归自测：`src/areas/dev/m4.ts` + `scripts/selftest/m4.mjs`（`core.mjs` 自动发现 `m4.mjs`）、
+`wp1.mjs` 的动态分辨率抖动用例、`wp4` 的挑选器顺序。
+
+- **教学条与“新消息”的挂起**（`ui/ui.ts`，与 §15.7.1 时辰字卡同一套“风平浪静”判据）：
+  - 新增 **`UI.tutorial(text)`**：教学条等“栈顶 explore/viewfinder、栈上没有过场/对话/面板/相册/巡夜本/三脚架/暂停、不在加载、runner 空闲或只在等玩家”
+    持续 0.5 秒（`UI.calmFor`）再显示；过场/对话一开始，刚弹出、还剩 1 秒以上的教学条收回重新排队。`E.tutorial`、第一次聚焦的“E：交互”
+    （`InteractionSystem.teachInteract` 只在 `calmFor ≥ 0.5` 时才算“第一次聚焦”）、第一次读不清的“滚轮：变焦”都走它；过场 `await` 的 prompt 照旧立即显示。
+    原来新游戏进区域的淡入里就聚焦到巡夜本，“E：交互”盖在开场片名卡上、玩家拿到控制前就过期了。
+  - “得到：……”（`'item'` 事件）与 `UI.toast(text, 'page', { onShow })`（巡夜本新页；`onShow` 在真正显示时调，新页主动机跟着延后）在栈上有过场/对话/巡夜本/暂停、
+    加载中或 runner 忙（不在等玩家）时排队，结束 0.2 秒后合成显示；面板不拦（密码锁错码给的新页照常）。flag 与物品照旧先写，`'feedback'` 事件照旧在调用时发。
+  - `UI.dismiss(text)`（已显示的淡出、排队的撤掉）、`UI.resetHeld()`（`Game.resetRun` 与 `shot()` 调用，上一局排队的不带进这一局）。
+- **提示字幕**：`UI.subtitle(text, who?, dur?, o?: { kind?: 'hint' })`、`speak(game, text, who, dur, kind?)`：H 的提示带 `'hint'`，新的替换屏幕上旧的提示行（连按 H 不叠两行）。
+  `speak` 显式给了 `dur` 时显示时长也不短于 `readSec(text)`（过场节拍仍按 `sayDuration`）。
+- **暂停/菜单与输入**（§4.6、附录 A）：对话与过场里 Esc = 暂停菜单（KEYMAP 两行加 `Escape → back`，`DialogueMode`/`CutsceneMode` 调 `requestPause()`）；
+  菜单页开着时按下的键（Esc 除外）只给 UI 不入队；`ExploreMode` 在没有区域或标题页开着时只认 `back`；键盘自动重复只放行方向键/PageUp/PageDown 且只通知监听者；
+  指针锁定从没成功又连续 2 次被拒 → `InputManager.dragFallback`（拖拽转视角、收起“点击继续”、提示 `STRINGS.boot.lockFallback`）。
+- **标题菜单**：有可覆盖的进度（`save.auto` 读得出）时“新游戏”“从寅时重来”要按两次（第一次换成 `STRINGS.menu.confirmOverwrite`，3 秒内对同一项再按才执行；
+  只管玩家的点击/回车，`menus.select()` 本身照旧直接执行）；只有 `save.yin` 坏时标题页说 `STRINGS.save.yinCorrupted`。
+- **存档写入失败**：`SaveSystem.writeSlot` 两次 `setItem` 都失败时提示一次 `STRINGS.save.writeFailed`（系统反馈条，一个页面一次；存储被禁用时进第一个区域就会提示）。
+- **WebGL 上下文丢失**：`FadeLayer.setLostOverlay(text | null)` 常驻遮罩（取代 4 秒的反馈条）；丢失后页面可见的真实时间超过 15 秒还没恢复 → `STRINGS.boot.contextDead`（请刷新）；恢复后撤掉。
+- **暂停不渲染**：栈顶 `mode.pause` 且进暂停后已渲染 2 帧，`Game.step` 不再调 `pipeline.render`（画布保留最后一帧；期间 `holdDynamicResolution`）；resize、设置改动、上下文恢复时补画一帧。
+- **动态分辨率**：帧间隔按 rAF 时间戳（`RenderPipeline.frameStamp`，§13.2）。
+- **聚焦**（`InteractionSystem.computeFocus`）：中心射线先碰到射程外（取景器里 ≤ 射程 + 4m）的对象就停在它身上——`focused = null`、`farFocused` = 它（灰色“（走近点）”），
+  不再穿过它聚焦后面射程内的东西，也不再退回就近规则（门厅里对着 3.2m 外的王奶奶，准星下原来写的是她身后的“楼梯”）。
+- **交互角标**（`ui/hud.ts`）：名字标签按实测尺寸（`offsetWidth/Height`，按文字与样式缓存）避让；取景器里先左右各让 0.6 个标签宽、再往下，推不开的非聚焦标签只留角框；
+  取景器里读字框、常驻按键行、倍率条也算障碍，贴底的角框让出 5.6em（按键行放大后原来的 3.5em 不够）。**更正**：推开用的 `setStyle(tag, 'marginTop', …)` 走 `style.setProperty`，
+  camelCase 属性名静默无效——第 1 轮的“推一行”从没生效过，改成 `'margin-top'` 等 kebab-case（`ui/dom.ts setStyle` 的注释写明）。
+  取景器里准星对着的聚焦名：缺省在准星下方，读字框显示时在上方、倍率 ≥ 3× 时在右侧 2.2em（半透明）；**`InteractableDef.vfLabel?: 'below' | 'above' | 'right'`** 可指定（取件格这类编号印在下面的用 `'above'`）。
+- **UI 分层**（`ui/styles.ts`）：录像机/监控台 deck 开着、没举取景器时 `.cm-deck-open`——字幕层升到面板之上、字幕排在 deck 上沿之上（`--cm-deck-h` 每帧写实测高度）、
+  反馈条挪到上部、物品提示抬到 deck 之上；暂停流程（`.cm-pause-on`）里字幕、反馈条、物品提示、新页提示隐藏，设置面板背景不透明；拍照卡片显示时（`.cm-photo-on`）字幕收窄不压卡片；
+  字幕宽度至少 60%（窄窗口不再挤成竖条），`max-width: 900px` 时字幕整体上移；取景器常驻按键行 0.9em、85% 不透明、键帽不小于 11px。
+- **挑选器**（`game/modes/album.ts` 新增 **`albumLists(game, arg)`**，AlbumMode 与 AlbumView 共用）：出示/使用时物品“未用的、新得的在前”，已用的沉底变暗；照片“关键照片、新拍的在前”，
+  空镜最后，目标不收任意照片时（只有 accept 为空、靠 `any` 收一切的——火盆——才收）不列空镜；初始光标：使用 → 第一件未用的物品，出示 → 最新的关键照片；物品栏超出一屏时底部渐隐 + “▼”，键盘光标滚到可见。浏览照旧（拍摄顺序、获得顺序）。
+- **镜中字**（`game/read.ts`）：站偏（虚像交点在镜盘外）时，准星射线落在镜盘内也给 `notInMirror`（原来只有准星对着镜外的虚像时才给）。
+- **过场**：`CutStep` 新增 **`{ hurry: number | null }`**——从这一步起玩家按住空格时计时步骤按 ×hurry 推进（片尾字幕这类不可跳过、但允许快进的段落；松开恢复原速）。
+- **回放**：`REPLAY_FRAG` 的扫描线改成屏幕空间（3 像素一周期、只压暗 10%）、整行闪断按 6 像素屏幕行、概率 1.5%，都不再调制不透明度（原来按世界高度每 4.5cm 一条、连 alpha 一起乘，人读成一摞摞圆盘）；
+  菲涅尔 1.1 → 1.4。人偶的回放部件：衣服贴图 0.85、原色 0.45、不透明度 0.75（`GhostDetail.opacity?` 新增）。回放人群（`rigs/crowd.ts`）换成圆一点的人形（圆筒躯干与四肢、头发帽、鞋），
+  UV 指向 5 格调色板（肤色、头发、上衣、裤子、鞋），三套衣服配色分三个 InstancedMesh（第一个是返回的 `mesh`，另两个是它的子节点；非回放的 look 仍是一个）。
+  回放暂停时 CameraFxPass 的 VHS 跟踪噪声条停在画面底部 6%（uniform **`uVhsPaused`**，`PostPipeline.vhsPaused` 由 `ReplaySystem.update` 每帧写）。
+- **人身**（`rigs/humanoid.ts`）：`head: 'human'` 的头 = 头球 + 头发壳（沿贴图发际线；short/long 盖到发际线，long 在赤道以下直直垂到颈后，bald 只剩后脑发环）+ 两只耳朵（长发不做）+ 鼻子，
+  合成一个网格、共用脸贴图（UV 指向贴图上的头发区与肤色），0 次额外 draw call；脸贴图的眼睛 ×1.3、眉眼嘴笔画 ×1.6，加上眼皮线；长袖上臂、肘球、前臂顶端同粗（armR × 1.15）。
+  魂影/回放：脸（连头发耳鼻）贴图调制 1.0、头部 `uSolid` 0.35；配件可用 `mesh.userData.ghostSolid` 自定实度。`HumanoidStyle.ghost?: { baseAmt?, tint? }`（陆师傅：原色 0.2、魂色 `#F4DEBE`）。
+  新增 `torsoSurface(h, u, y)`（躯干表面点/法线/切线）与 `accessories.zhongshanDetails(h, color)`（中山装立领、5 粒扣、四个口袋盖，陆师傅与黄三爷的人形/黄鼬形都挂）；老花镜往前挪到脸面上。
+- **纸扎门童**（`rigs/paper.ts`）：竹竿半径 0.014k、颜色 `#6B4E2A`；灯笼挂在竿尖正下方，中间 0.04k 的细绳。
+- **残影旋涡**（`kit/residue.ts`）：点大小上限 4px；离镜头近的点淡下去；镜头离柱子“看上去” < 2.5m（按取景器倍率折算）时整柱压到 40%；动画时间改用 `FX_TIME`（游戏时间，锁步截图可复现）。
+- **截图验收**（`shots.mjs`、harness `lumaStats().coreP995`）：高光判据改为 3×3 盒式模糊后亮度的第 99.5 百分位 ≥ `highlight` − 0.08（缺省 0.72）；`ShotDef.highlight` 的语义不变。
+- **STRINGS**：`boot.contextDead`、`boot.lockFallback`、`save.yinCorrupted`、`save.writeFailed`、`menu.confirmOverwrite`；暂停页操作说明的 Esc 一行写成“暂停（对话与过场中也可）；面板与取景器里是离开”。
+- **测试**：`input.mjs` 沙盒多一例（对话里 Esc 暂停、暂停页 Enter 不漏给对话与密码锁）；`--game` 的 `walkToward` 按住 W 的时长改按游戏时间（高负载 2fps 时按真实时间的短按可能整个落在两帧之间，偶发“走不到”）；
+  `wp5` 读字多一例（站偏 0.6m、准星对着镜子中心 → `notInMirror`）；`walkthrough.mjs` 步骤 58 的题名“南柯”同时认字幕与大字卡（R1-finale 本轮把它改成与片名同一种大字卡，`ui.fade.title` 不发 `'feedback'`，页面上用 MutationObserver 记下大字卡出现过的文字）；
+  `src/areas/dev/m4.ts` 另有不在 `PAGE_TESTS` 里的 `m4.lineup`（look-dev 角落摆一排人偶，截图探针用）。
+
+#### 15.7.4 M4 第二轮整合记录（2026-09-29，整合代理）
+
+- **本轮评审**：视觉、玩法、叙事、健壮性四位评审共 72 条（27 major、45 minor、0 blocker）；按 owner：engine 35（11 major）、R1/R1-finale 22（9）、R2/R2_502 8（5）、R3 4（1）、R4 3（1）。
+- **修复者交付**：engine 35 条全部处理（节奏一条只做了引擎部分，取件格名字位置与读信时长的区域部分交给区域）；R1 22 条里 21 条修好、门口倒带一条部分修好（缺引擎）；R2 8 条全修；R3 3 条修好、P6 路牌一半归 R1-world；
+  R4 2 条修好、P10 一条部分修好（缺引擎）。
+- **整合时补的引擎改动**（只加不删）：
+  - **回放进段转向**（`game/replay.ts beginTurn`）：片段写了 `focus` 时俯仰下限 −40°（`TURN_MIN_PITCH_FOCUS`），“焦点离眼睛水平 < 0.35m 才只抬头不转身”（`NEAR_FOCUS_EXPLICIT`）；缺省焦点仍是 −15° / 0.8m。
+    R4 的“贴着箱子 (3.8,0.2) 按 R 不动鼠标直接拍到 `ph.huang_hides`”用例去掉 `blockedBy`。R1 门口倒带的 `FRONT` 试过挪回带子里的 (-3.4,21.4)：
+    从步骤 50 的站位按 R 他离镜头 0.63m，雪花脑袋占满取景器（`test-artifacts/work/m4r2-int/booth/`），所以仍站在 `npcSpots.zhouDoor`（GDD P12 第 5 步写明）。
+  - **`GameApi.player.look?(yaw, pitch)`**（§6 GameApi 签名）：只改视角（俯仰按第三人称范围钳制），不转身体、不动位置。R1 开场在巡夜本特写那一镜里调 `look(190, −26)`，
+    拉回第三人称时发光的本子露在头的左边（第 2 轮评审 #3 的 R1 补充）。`{cam:'player'}` 取的是执行那一刻的第三人称位姿，所以要提前至少一帧调。
+  - **`kit/canvas.ts wrapText` 避头尾**：句读、后括号、后引号不打头（超宽也挂在本行末），前括号、前引号不留在行末（与 R3 守则的 `wrapKinsoku` 同一套字表）；讣告、小区简介、文档贴图都走它。
+- **needs-other-owner 与节奏条目的处理**（整合代理拥有全部文件）：
+  - R1-world：东口“老街 →”、西口“← 人民路”两块路牌改成暖白字、字面自发光 0.6（`boardSign({ selfLit })`，`build/common.ts` 新增可选字段）。
+  - 节奏（评审 #25）：土地交代任务 5 框压成 3 框（丑时以前再找他另有一句 `TUDI.idle`）；老周馄饨独白第 3、4 框各删约三分之一，“照相摄魂”只留一处；陆师傅本相后 94 字那一框拆成两框
+    （“带子让街道收了，后来跟着废品走了”是 P10 的线索，保留）；R2 楼梯井 `r2.wang_done` 之后三楼以上多“下到一楼”；片尾照片段 `{ hurry: 3 }`；R2_502 读信近景第一句 5 → 8 秒、两句之间 `{ wait: 0.6 }`。
+    真人首通计时仍未做（本机只有无头浏览器）。
+  - R3：取件格 `r3.hole_*` 与 `r3.pickup_grid` 设 `vfLabel: 'above'`。R4：`dlg.r4.huang_ir` 的选项节点带上他问的那句（同 R1 老周的 c1/c2）。
+  - 截图：`shot.r1.booth_inside`、`shot.r2_502.entry`、`shot.r4.entry_zi` 撤掉第 1 轮放宽的 `highlight: 0.7`（新判据实测 0.775 / 0.767 / 0.86）。
+  - 测试脚本：walkthrough 步骤 25（抠开铁盒即翻开建国的信，断言后 `back()`）、43（第一行是旁白“半天没出声”）、56（确认正文按 0 / 1–5 / 6 张三种写法，`confirmWant` 从 walkthrough 导出）；
+    删掉 `regions/r2.mjs` 步骤 25、`regions/r1_finale.mjs` 步骤 56 的临时覆盖（r1_finale 保留步骤 58 的片名断言、r4 保留步骤 43 的两行断言）；`regions/r2.mjs` 加两条楼梯井“下到一楼”用例。
+  - GDD 同步：§2.2/§2.5/§2.6/§2.7、§3.6（进段转向）、§3.8（05:12 字幕）、§3.12、§3.13、§4.2–§4.4、P2/P3/P4/P5/P6/P10/P11/P12/P13/P14、§7.3、§8.1/§8.5/§8.7/§8.8/§8.9、§10.1–§10.3、§11 步骤 25/43/56/58、§13.6、§13.12。
+  - 没做：R2 建议的“引擎对摄像头头壳漫反射软截断”（R2 已不需要，可选）；回放人影按关键帧换 variant（R1 门口倒带 t ≥ 9.5 摘帽，引擎不支持，维持戴帽）。
+- **测试**（最终构建，同一份 dist 拷贝；input 两项先在空闲机器上单独跑，其余两路并行，负载 10–15）：`npm run build` 通过；`check` 0 违规（9 条 dev 沙盒警告，27s）；`input.mjs` 10/10（155s）、`--game` 3/3（187s）；
+  `smoke` OK（27s）；`core.mjs` 35/35（2140s，wp7 等第二个浏览器名额约 20 分钟）；walkthrough 全程 58/58（220s）、`--main` 50 + 可选跳过 8（208s）、`--reload` 58/58（231s）、
+  `--yin --hints` 58 + 从寅时重来 12 步 + 南柯追加提示 3 次（317s）；`roundtrip.mjs` r1 ↔ r2/r2_502/r3/r4 × 5 全部 +0（300s）；`shots.mjs` 全部区域 83 张 0 问题（1869s）；
+  另跑区域测试：`regions/r4` 步骤 8 + 用例 23/23（原 blocked 的一条通过，918s）、`r2` 14 + 32/32（839s）、`r1` 11 + 27/27（576s）、`r1_finale` 26 + 24/24（703s）、`r3` 11 + 16/16（390s）。
+  探针截图（开场收尾构图、东口路牌、门口倒带站位）在 `test-artifacts/work/m4r2-int/{intro,sign,booth}/`。
+- **遗留**（下一轮评审复核）：真人首通计时（目标 25–40 分钟）；R3 暗房贴西墙斜瞄、站门洞里、晾片绳北侧回头这三类第三人称聚焦边角（引擎 `TP_MIN` 与 −35° 俯仰下限的同类问题，影棚坐凳、取件格最下几行也有）；
+  R2_502 厨房西北角斜瞄灶台会选到左下砖；引擎三项只能在真浏览器验证（指针锁定降级为拖拽、方向键/PageDown 自动重复、暂停页停渲染）；拍照卡片与长字幕不互压只算过没截图。
 
 ---
 
@@ -3701,7 +3791,7 @@ R1-world 与 R1-finale 同时开工：R1-finale 先对着 M1a 占位 `world.ts` 
 | `album`（Tab） | 打开 | 打开 | — | — | — | — | — | — | 浏览：关闭 | 切到相册 | — | — | — |
 | `journal`（J） | 打开 | 打开 | — | — | — | — | — | — | 浏览：切到巡夜本 | 关闭 | — | — | — |
 | `hint`（H） | 提示 | 提示 | 提示 | 提示 | 提示 | — | — | — | — | — | — | — | — |
-| `back`（Esc） | 暂停菜单 | 退出取景器；叠在面板上时 `pass` 给面板 = 离开面板 | 退出回放 | 离开面板 | 离开面板 | 离开 | 离开 | — | 挑选器 → 动作菜单 → 关闭 | 关闭 | — | — | 继续 |
+| `back`（Esc） | 暂停菜单 | 退出取景器；叠在面板上时 `pass` 给面板 = 离开面板 | 退出回放 | 离开面板 | 离开面板 | 离开 | 离开 | 暂停菜单（M4 第 2 轮；不取消对话，强制对话同样只暂停） | 挑选器 → 动作菜单 → 关闭 | 关闭 | — | 暂停菜单（M4 第 2 轮） | 继续 |
 | 移动（WASD） | 移动（Shift 快走） | 慢速移动（叠在面板上时无） | 慢速移动 | — | — | — | — | — | — | — | 操纵身体 | — | — |
 | 视角（鼠标） | 环绕 | 瞄准（叠在面板上时禁用） | 瞄准 | — | — | — | — | — | — | — | — | — | — |
 | 指针（§4.6） | lock | lock（叠在面板上时 free） | lock | free | free | free | free | free | free | free | lock | free | free |
@@ -3710,6 +3800,8 @@ R1-world 与 R1-finale 同时开工：R1-finale 先对着 M1a 占位 `world.ts` 
 - 面板上叠加取景器时（`[…, panel_vcr, viewfinder]`），取景器未处理的 `play/shuttle/stepSec/index/digit`，以及 `interact`、`back`，都以 `pass` 下传给面板。残影点在任何面板模式下都不响应 R。
 - 指针锁定时按 Esc：浏览器先解除锁定、页面通常收不到这次按键，于是按 §4.6 压入暂停；表里 `back` 列的行为只在未锁定（`?nolock=1`、锁定不可用、UI 模式）时由 Esc 触发。
 - 支架确认、楼梯井是强制对话，按 `dialogue` 列操作（1–4 选项）。
+- M4 第 2 轮：菜单页（标题、暂停、设置）开着时，按下的键只给 UI（`InputManager.onButton` 的监听者），**不**再进 KEYMAP 翻译（Esc 与松开事件除外）——
+  暂停页上 Enter 选“继续”不会在下一帧按对话/密码锁/挑选器再翻译一次；标题页的 Tab/J 不会把看不见的相册、巡夜本压进栈（`ExploreMode` 另有保险：没有区域或标题页开着时只认 `back`）。
 
 ### 附录 B：GDD 机制 → 实现位置
 

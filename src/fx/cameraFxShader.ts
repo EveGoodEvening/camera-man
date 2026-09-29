@@ -27,6 +27,8 @@ export interface CameraFxUniforms {
   uVignette: THREE.IUniform<number>;
   uMonoRed: THREE.IUniform<number>;
   uVhs: THREE.IUniform<number>;
+  /** M4 第 2 轮：回放暂停（1 = 跟踪噪声条停在画面底部 6% 处，不再滚过人脸；ReplaySystem 写） */
+  uVhsPaused: THREE.IUniform<number>;
   uBarrel: THREE.IUniform<number>;
   uIr: THREE.IUniform<number>;
   uTint: THREE.IUniform<THREE.Vector3>;
@@ -67,6 +69,7 @@ uniform float uChroma;
 uniform float uVignette;
 uniform float uMonoRed;
 uniform float uVhs;
+uniform float uVhsPaused;
 uniform float uBarrel;
 uniform float uIr;
 uniform vec3 uTint;
@@ -125,7 +128,8 @@ void main() {
     float line = floor( uv.y * 240.0 );
     float jitter = ( cmHash12( vec2( line, frameNo ) ) - 0.5 ) * 0.0035;
     float wobble = sin( uv.y * 7.0 + uTime * 1.7 ) * 0.0015;
-    float bandPos = 1.0 - fract( uTime * 0.13 );
+    // M4 第 2 轮：暂停时噪声条停在画面底部（真录像机暂停也是这样），不再横在要拍的人头上
+    float bandPos = mix( 1.0 - fract( uTime * 0.13 ), 0.06, uVhsPaused );
     float bd = abs( uv.y - bandPos );
     trackBand = 1.0 - smoothstep( 0.0, 0.03, bd );
     float bandShift = ( cmHash12( vec2( line * 0.37, frameNo + 17.0 ) ) - 0.5 ) * 0.03 * trackBand;
@@ -253,6 +257,7 @@ export function createCameraFxPass(): ShaderPass {
     uVignette: { value: 0 },
     uMonoRed: { value: 0 },
     uVhs: { value: 0 },
+    uVhsPaused: { value: 0 },
     uBarrel: { value: 0 },
     uIr: { value: 0 },
     uTint: { value: new THREE.Vector3(1, 1, 1) },
@@ -289,9 +294,10 @@ export function frame43Rect(w: number, h: number, target = new THREE.Vector4()):
 
 /** 把合成后的 FxParams 写入 pass 的 uniforms（w/h 为绘制缓冲像素尺寸）。 */
 export function updateCameraFxUniforms(
-  pass: ShaderPass, p: Readonly<FxParams>, o: { time: number; w: number; h: number; cssW: number; cssH: number },
+  pass: ShaderPass, p: Readonly<FxParams>, o: { time: number; w: number; h: number; cssW: number; cssH: number; vhsPaused?: boolean },
 ): void {
   const u = pass.uniforms as CameraFxUniforms;
+  u.uVhsPaused.value = o.vhsPaused ? 1 : 0;
   u.uResolution.value.set(Math.max(1, o.w), Math.max(1, o.h));
   u.uTime.value = o.time;
   u.uExposure.value = p.exposure;

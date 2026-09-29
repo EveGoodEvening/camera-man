@@ -53,10 +53,13 @@ export const TEXT = {
     /** P11：出示 ph.true_form（黄三爷说） */
     huangNotMe: '那是你，不是我。',
     /**
-     * P11：出示 ph.huang_normal。GDD 原文是旁白“他半天没出声，尾巴垂下去：”加台词；M4 把旁白写成台词前的动作提示，
-     * 与台词同在 dlg.r4.huang_normal 的一行里（原先先发旁白字幕再开对话，字幕被对话框盖住）
+     * P11：出示 ph.huang_normal（dlg.r4.huang_normal 两行）。GDD 原文是旁白“他半天没出声，尾巴垂下去：”加台词；
+     * M4 第 2 轮：动作单独成一行旁白（与“（他笑出了声，又像在哭）”等全作体例一致），不再挂在黄三爷的台词行里
      */
-    huangNormalLine: '（半天没出声，尾巴垂下去）……你瞅见的是这个。你再好好瞅瞅。',
+    huangNormalAside: '（他半天没出声，尾巴垂下去）',
+    huangNormal: '……你瞅见的是这个。你再好好瞅瞅。',
+    /** 区域补写（M4 第 2 轮）：认账前出示 ph.huang_ir（黄三爷说；pt.huang_ir 揭面具后就拍得到，认账前不给带子） */
+    huangIrEarly: '急啥？账还没算清呢。',
     /** §8.9 X5 红外冷迹 r4.cold_stairs */
     coldStairs: '楼梯口凉了一块。到这儿，他就不往下走了。',
     /** 区域补写：报刊亭（GDD §4.5“关着的报刊亭”） */

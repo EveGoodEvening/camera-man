@@ -169,9 +169,22 @@ const CHEST = R4L.chest.pos;
 const WEASEL = { x: -4.5, z: 2.4, yaw: 314 };
 const EYES: V3 = [WEASEL.x + 0.22 * Math.sin(WEASEL.yaw * (Math.PI / 180)), 0.74, WEASEL.z - 0.22 * Math.cos(WEASEL.yaw * (Math.PI / 180))];
 
+/**
+ * 进段时镜头转向的点（ReplaySegmentDef.focus，M4 第 2 轮）。不给时引擎取人影关键帧的平均点：
+ * 2023 那段是收废品的（西头进、西头出）与黄三爷的平均，从摊前 (3.8,0.2) 看镜头转到通道西侧（yaw≈244°），
+ * 樟木箱在身后左边，第 10–18 秒按快门只能得空镜。改成樟木箱与黄三爷蹲着塞带子的地方之间、略高一点：
+ * 水平方向：从摊前一带（残影点 2.5m 内）看，影子与箱子都落在画框横向中央 60% 以内（pt.huang_hides 的判定）。
+ * 俯仰：箱子在地上，从摊前要俯到 −22…−30° 才居中；引擎对写了 focus 的片段把转向的俯仰下限放到 −40°（M4 第 2 轮整合，
+ * ReplaySystem TURN_MIN_PITCH_FOCUS；原来一律 −15°，更近的 (3.8,0.2)、(4.8,0.6) 箱盖落在画框下沿），
+ * 于是摊前一带按 R 不动鼠标、第 12 秒按快门就拍得到（scripts/regions/r4.mjs 的三条 P10 用例）。
+ */
+const STALL_FOCUS: V3 = [4.0, 0.85, 2.3];
+/** 1997 那段：对着红绸后头的街坊（旧照六的主体），略偏南——从西边过来按 R 时，南墙根摊子底下那双眼睛也在画面里。 */
+const MID_FOCUS: V3 = [-3.6, 1.2, 0.5];
+
 export const SEGMENTS: readonly ReplaySegmentDef[] = [
   {
-    id: SEG.STALL_2023, point: RP.R4_STALL, order: 1, osd: '2023-09-16 14:20', dur: 22, loop: true,
+    id: SEG.STALL_2023, point: RP.R4_STALL, order: 1, focus: STALL_FOCUS, osd: '2023-09-16 14:20', dur: 22, loop: true,
     actors: [
       {
         // 收废品的：从西头扛着一箱带子进来，往 S3 的摊子上一倒，拍拍手走了
@@ -235,7 +248,7 @@ export const SEGMENTS: readonly ReplaySegmentDef[] = [
     sfx: [{ t: 5, cue: 'drawer' }, { t: 15.2, cue: 'drawer' }],
   },
   {
-    id: SEG.MID_1997, point: RP.R4_MID, order: 1, osd: '1997-07-01 09:00', dur: 18, loop: true,
+    id: SEG.MID_1997, point: RP.R4_MID, order: 1, focus: MID_FOCUS, osd: '1997-07-01 09:00', dur: 18, loop: true,
     actors: [
       {
         // 街坊挤在红绸后头（面朝西、朝着剪彩的人与镜头；第一排在 x=-3.6，往东一排比一排高一点，后排看得见）

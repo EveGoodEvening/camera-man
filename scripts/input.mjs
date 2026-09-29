@@ -346,6 +346,54 @@ if (!GAME) {
     await until(h, s => s.mode !== 'mode.panel_code', '正确后面板关闭');
   });
 
+  // M4 第 2 轮：对话里 Esc = 暂停；暂停页上 Enter 选“继续”只关暂停，不漏给下面的对话/密码锁（原来跳一句台词、多确认一位）
+  test('暂停：对话里 Esc 暂停、Enter“继续”不漏给对话；密码锁上暂停后 Enter 不多确认一位', async h => {
+    await setupHome(h);
+    const a = await h.call('aimAt', 'npc.wang');
+    await h.call('goto', 'dev', a.point[0], a.point[2] + 1.6);
+    const s0 = await h.state();
+    const t = yawPitchTo(s0, a.point);
+    await dragAim(h, t.yaw, t.pitch);
+    await until(h, s => s.focused === 'npc.wang', '聚焦 NPC');
+    await tap(h, 'KeyE');
+    await talkVia(h);
+    const d0 = await until(h, s => s.mode === 'mode.dialogue' && s.dialogue, 'E 开始对话');
+    await tap(h, 'Escape');
+    await until(h, s => s.mode === 'mode.pause', '对话里 Esc → 暂停页');
+    await tap(h, 'Enter');
+    const d1 = await until(h, s => s.mode === 'mode.dialogue', 'Enter 选“继续”回到对话');
+    await sleep(400);
+    const d2 = await h.state();
+    assert(d2.mode === 'mode.dialogue' && d2.dialogue && d2.dialogue.text === d0.dialogue.text, `Enter 漏给了对话：${d0.dialogue.text} → ${d2.dialogue?.text}（${d1.mode}）`);
+    for (let i = 0; i < 12 && (await h.state()).mode === 'mode.dialogue'; i++) {
+      const s = await h.state();
+      if (s.dialogue && s.dialogue.options.length) await tap(h, `Digit${s.dialogue.options.length}`);
+      else await tap(h, 'Space');
+    }
+    await until(h, s => s.mode === 'mode.explore', '对话结束');
+    // 密码锁
+    const b = await h.call('aimAt', 'r1.drawer');
+    await h.call('goto', 'dev', b.point[0], b.point[2] + 1.4);
+    const s3 = await h.state();
+    const t3 = yawPitchTo(s3, b.point);
+    await dragAim(h, t3.yaw, t3.pitch);
+    await until(h, s => s.focused === 'r1.drawer', '聚焦抽屉');
+    await tap(h, 'KeyE');
+    await until(h, s => s.mode === 'mode.panel_code', 'E 打开密码锁');
+    await tap(h, 'Digit1');
+    await tap(h, 'Digit9');
+    const p0 = await until(h, s => s.panel && s.panel.entered.replace(/[^0-9]/g, '').startsWith('19'), '输入 19');
+    await h.page.evaluate(() => window.__cmGame.requestPause());         // setup：模拟切标签页压暂停（与 visibilitychange 同一入口）
+    await until(h, s => s.mode === 'mode.pause', '压上暂停');
+    await tap(h, 'Enter');
+    await until(h, s => s.mode === 'mode.panel_code', 'Enter“继续”回到密码锁');
+    await sleep(400);
+    const p1 = await h.state();
+    assert(p1.panel && p1.panel.entered === p0.panel.entered, `Enter 漏给了密码锁：${p0.panel.entered} → ${p1.panel?.entered}`);
+    await tap(h, 'Escape');
+    await until(h, s => s.mode === 'mode.explore', 'Esc 离开密码锁');
+  });
+
   test('录像机面板：] 跳索引、按住 C 快进、进入 03:13:30 自动降速、空格暂停、E 离开', async h => {
     await setupHome(h);
     const a = await h.call('aimAt', 'r1.vcr');
@@ -463,7 +511,11 @@ if (GAME) {
   });
 }
 
-/** 用 WASD 朝 p 走到水平距离 stop 以内：每轮先拖拽转向，再按 W（真实输入，不传送）。 */
+/**
+ * 用 WASD 朝 p 走到水平距离 stop 以内：每轮先拖拽转向，再按住 W（真实输入，不传送）。
+ * M4 第 2 轮：按住的时长按**游戏时间**算（afterGameSec，同沙盒的 WASD 用例）——原来按真实时间按 150–900ms，高负载下只有 2fps 时
+ * 一次按键可能整个落在两帧之间，一步也没走，20 轮后“走不到”（input --game 的巡夜本→电闸、抽屉两处偶发失败）。
+ */
 async function walkToward(h, p, stop = 1.0) {
   for (let i = 0; i < 20; i++) {
     const s = await h.state();
@@ -471,7 +523,15 @@ async function walkToward(h, p, stop = 1.0) {
     if (d <= stop) return;
     const t = yawPitchTo(s, [p[0], s.pos[1] + 1.85, p[2]]);
     await dragAim(h, t.yaw, s.pitch, 4);
-    await tap(h, 'KeyW', Math.min(900, Math.max(150, (d - stop) * 400)));
+    // 步行 2.2 m/s：按剩余距离的 70% 走（留余量给起步加速与转向误差），每轮 0.08–0.45 秒游戏时间
+    const g0 = await gameTime(h);
+    await h.page.keyboard.down('KeyW');
+    try {
+      await afterGameSec(h, g0, Math.min(0.45, Math.max(0.08, ((d - stop) / 2.2) * 0.7)), 15_000);
+    } finally {
+      await h.page.keyboard.up('KeyW');
+    }
+    await sleep(100);
   }
   throw new Error(`走不到 ${JSON.stringify(p)}`);
 }
