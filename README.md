@@ -30,7 +30,7 @@ npm run preview
 
 ## 在线试玩
 
-GitHub Pages：<https://evegoodevening.github.io/camera-man/>。首次启用时，在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**；推送到 `main` 后，`.github/workflows/pages.yml` 会安装锁定依赖、以 `/camera-man/` 为资源根路径构建，并部署 `dist/`。也可在 Actions 中手动运行。
+<https://evegoodevening.github.io/camera-man/>
 
 存档保存在当前站点的浏览器 localStorage；换设备、浏览器或站点地址不会自动迁移。
 
@@ -59,32 +59,3 @@ GitHub Pages：<https://evegoodevening.github.io/camera-man/>。首次启用时�
 - 提示无冷却
 - 镜面和照妖镜的实时 / 预制模式（机器吃力时用“预制”）
 
-## 开发
-
-| 命令 | 作用 |
-|---|---|
-| `npm run build` | 类型检查（`tsc --noEmit`）并构建到 `dist/` |
-| `npm run check` | 静态检查：id 注册、区域之间不互相 import、禁用 API |
-| `npm run smoke` | 冒烟测试：启动游戏，确认无报错且 WebGL 2 可用 |
-| `npm run test:core` | 引擎自测（无头 Chromium） |
-| `npm run test:walk` | 自动通关（GDD §11 的 58 步；另有 `--main`、`--reload`、`--yin --hints` 变体） |
-| `npm run shots` | 各区域截图，并做亮度与性能预算验收 |
-
-测试针对已构建的 `dist/`，请先运行 `npm run build`。测试用 Playwright 驱动无头 Chromium（SwiftShader 软件渲染），每个浏览器约占 3–4 GB 内存，`scripts/lib/browserSlots.mjs` 把同时运行的浏览器限制在 2 个以内。
-
-代码结构：
-
-```
-src/core    主循环、区域加载、输入与模式栈、相机、碰撞、玩家
-src/game    玩法系统：状态与存档、交互、拍照、倒带、录像机、监控台、镜子、对话、过场、提示……
-src/ui      DOM 界面（HUD、取景器、相册、巡夜本、各面板、菜单）
-src/fx      后期（监控画面质感、红外、CRT）、共享材质
-src/rigs    主角与 NPC 的程序化模型
-src/kit     程序化建造工具（建筑、门窗、灯、雨、文字贴图……）
-src/audio   WebAudio 合成的音效、环境声与音乐
-src/areas   各区域：r1 槐安里（含 finale/ 终章）、r2 三号楼、r2_502、r3 照相馆、r4 鬼市、dev 引擎沙盒
-scripts     测试与工具脚本
-docs        GDD.md（游戏设计）、ARCH.md（技术架构）、requests/（开发过程中的需求记录）
-```
-
-技术栈：three.js 0.186 + TypeScript 7 + Vite 8。开发约定与踩坑记录见 `AGENTS.md`。
