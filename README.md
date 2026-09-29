@@ -28,6 +28,12 @@ npm run preview
 
 第一次点击画面时会锁定鼠标并开启声音。进度会自动存到浏览器的 localStorage。
 
+## 在线试玩
+
+GitHub Pages：<https://evegoodevening.github.io/camera-man/>。首次启用时，在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**；推送到 `main` 后，`.github/workflows/pages.yml` 会安装锁定依赖、以 `/camera-man/` 为资源根路径构建，并部署 `dist/`。也可在 Actions 中手动运行。
+
+存档保存在当前站点的浏览器 localStorage；换设备、浏览器或站点地址不会自动迁移。
+
 ## 操作
 
 | 键 | 作用 |
