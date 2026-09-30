@@ -106,7 +106,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 ### 2.1 总览
 
 ```
-camera-man/
+camhead-man/
 ├─ index.html                 入口：<title>天亮了，叫我</title>、#app 容器、body 黑底；加载 /src/main.ts
 ├─ vite.config.ts             （可选，不参与 tsc）build.chunkSizeWarningLimit=4000；不需要其他配置
 ├─ package.json  tsconfig.json  AGENTS.md
@@ -190,7 +190,7 @@ camera-man/
 | `expr.ts` | `Cond` 编译：FlagExpr 字符串解析器 + 注册表校验 |
 | `effects.ts` | `Effect` 联合类型、`E` 构造器、`EffectRunner`（可重入、settle 与取消语义，§6.3）、`GameApi` 实现 |
 | `save.ts` | `SaveSystem`：槽位、延迟存档、版本号、读档校验、结局期间暂停落盘、通关标记 |
-| `settings.ts` | `Settings` 读写（localStorage `camera-man.settings`） |
+| `settings.ts` | `Settings` 读写（localStorage `camhead-man.settings`） |
 | `shichen.ts` | 时辰推导、HUD 钟点、时辰过场 |
 | `interaction.ts` | `InteractionSystem`：聚焦、角标、`activate()` 唯一入口、动作菜单/挑选器流程（`mode.album` 的 pick 参数） |
 | `npc.ts` | `NpcSystem`：站位由 flags 推导、阴物常显、回放期间让位、跟随 NPC 的灯 |
@@ -323,7 +323,7 @@ src/areas/r1/
 4. 初始化共享资源：`MATERIALS`、`POST_PRESETS`、`PALETTE`、环境贴图（`fx/environment.ts`）；把玩家模型的 `root` 加入场景（模型本身已在构造函数里由 `createPlayerModel()` 创建）。
 5. 静态导入 `src/areas/index.ts` 的全部 `AreaDef`（只是数据与函数，`build` 此时不执行），建立全局索引：出生点 → 区域、片段 → 区域、谜题表、文档表、对话表、出入口图。**校验**所有静态引用的 id 存在、每个出生点到本区任一出入口触发体边缘 ≥ 0.8m（GDD §4 开头；dev 下失败即抛错）。
 6. 显示标题菜单（`ui/menus.ts`）：
-   - “继续”：`save.read('save.auto')` **读得出且通过校验**（§6.4）才显示；读不出或校验失败时原数据另存为 `camera-man.save.auto.bad`，toast“存档损坏，只能重新开始。”，不显示“继续”。
+   - “继续”：`save.read('save.auto')` **读得出且通过校验**（§6.4）才显示；读不出或校验失败时原数据另存为 `camhead-man.save.auto.bad`，toast“存档损坏，只能重新开始。”，不显示“继续”。
    - “从寅时重来”：`save.yin` 通过校验时显示。
    - “新游戏”：总有。
    - 通关后（片尾播完，§6.4）`save.auto` 已删除，所以只剩后两项。
@@ -1441,7 +1441,7 @@ export interface SaveDataV1 {
 }
 export type SaveReadResult = { ok: true; data: SaveDataV1; repaired: string[] } | { ok: false; reason: 'missing' | 'parse' | 'version' | 'schema' };
 export type SaveSlotName = 'save.auto' | 'save.yin';   // M1a 补写：别名
-export const SAVE_KEYS = { 'save.auto': 'camera-man.save.auto', 'save.yin': 'camera-man.save.yin', settings: 'camera-man.settings', completed: 'camera-man.completed' } as const;   // M1a 补写
+export const SAVE_KEYS = { 'save.auto': 'camhead-man.save.auto', 'save.yin': 'camhead-man.save.yin', settings: 'camhead-man.settings', completed: 'camhead-man.completed' } as const;   // M1a 补写
 export class SaveSystem {
   request(reason: 'flag' | 'area' | 'item' | 'photo' | 'manual'): void;   // 标记脏
   flushIfSafe(): void;                    // 栈上无临时模式、且没有 hold 时写 save.auto
@@ -1451,7 +1451,7 @@ export class SaveSystem {
   writeSlot(slot: 'save.auto' | 'save.yin'): boolean;   // try/catch；失败只在内存中继续
   read(slot: 'save.auto' | 'save.yin'): SaveReadResult; // 解析 + 版本 + schema 校验（见下）
   has(slot: 'save.auto' | 'save.yin'): boolean;          // = read(slot).ok（损坏的存档不算“有”）
-  markCompleted(): void;                  // 片尾播完：删除 save.auto，写 camera-man.completed = 时间戳
+  markCompleted(): void;                  // 片尾播完：删除 save.auto，写 camhead-man.completed = 时间戳
   readonly completed: boolean;
   load(slot: 'save.auto' | 'save.yin'): SaveReadResult;   // M1a 补写：read 通过后 state.restore(data.core)；ok:false 时不改状态、原数据另存 *.bad（Game.continueFrom 用）
   clearCompleted(): void;                 // M1a 补写：“新游戏”“从寅时重来”清除通关标记
@@ -1459,7 +1459,7 @@ export class SaveSystem {
 }
 ```
 
-- localStorage 键：`camera-man.save.auto`、`camera-man.save.yin`、`camera-man.settings`、`camera-man.completed`（通关标记，不在存档里，GDD §13.3“推导量”）；损坏存档的备份键 `camera-man.save.auto.bad`（`.yin.bad` 同理）。
+- localStorage 键：`camhead-man.save.auto`、`camhead-man.save.yin`、`camhead-man.settings`、`camhead-man.completed`（通关标记，不在存档里，GDD §13.3“推导量”）；损坏存档的备份键 `camhead-man.save.auto.bad`（`.yin.bad` 同理）。
 - **读档校验**（`read()`）：JSON 解析失败 → `parse`；`v` 不符 → `version`；结构不符（缺字段、类型错）→ `schema`。结构对但内容可疑时**就地修复**并在 `repaired` 里列出：丢弃不在 `ALL_IDS` 里的 flags/物品/照片（空镜 `ph.empty_<n>` 保留）；把 `r2.wang_floor` 钳到 0–5 的整数；`area` 必须是 `AreaId`，`spawn` 必须属于该区域（否则改用该区域第一个出生点）；`emptySeq` 至少为现存空镜编号最大值。`ok:false` 时把原始字符串另存为 `*.bad`，标题菜单不显示对应项，并 toast“存档损坏，只能重新开始。”
 - 不存：录像机位置、灯的亮灭计时、暗房步骤、视频线插接、回放状态、对话进度、提示计时、区域临时状态（GDD §3.13）。
 - `E.save('save.yin')` 在 `r4.got_tape` 写入后执行；若当时在对话中，推迟到回到 explore/viewfinder 时写，写之前状态已包含 `r4.got_tape`。

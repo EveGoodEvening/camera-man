@@ -41,10 +41,10 @@ export type SaveSlotName = 'save.auto' | 'save.yin';
 
 /** localStorage 键（ARCH §6.4）。损坏存档另存为 `${key}.bad`。 */
 export const SAVE_KEYS = {
-  'save.auto': 'camera-man.save.auto',
-  'save.yin': 'camera-man.save.yin',
-  settings: 'camera-man.settings',
-  completed: 'camera-man.completed',
+  'save.auto': 'camhead-man.save.auto',
+  'save.yin': 'camhead-man.save.yin',
+  settings: 'camhead-man.settings',
+  completed: 'camhead-man.completed',
 } as const;
 
 /** 取 localStorage（不可用时 null；隐私模式、node 自测都可能没有）。 */
@@ -193,7 +193,7 @@ export class SaveSystem {
     this.pendingYin = false;
     return r;
   }
-  /** 片尾播完：删除 save.auto，写 camera-man.completed = 时间戳 */
+  /** 片尾播完：删除 save.auto，写 camhead-man.completed = 时间戳 */
   markCompleted(): void {
     removeItem(SAVE_KEYS['save.auto']);
     if (!setItem(SAVE_KEYS.completed, String(Date.now()))) this.completedMem = true;

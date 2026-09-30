@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SLOT_DIR = process.env.CAMERA_SLOT_DIR || '/tmp/camera-man-browser-slots';
+const SLOT_DIR = process.env.CAMERA_SLOT_DIR || '/tmp/camhead-man-browser-slots';
 const MAX = Math.max(1, Number(process.env.CAMERA_MAX_BROWSERS) || 2);
 const MIN_FREE_MB = Math.max(0, Number(process.env.CAMERA_MIN_FREE_MB) || 4500);
 const owned = new Set();

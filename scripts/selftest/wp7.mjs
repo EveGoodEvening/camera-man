@@ -40,7 +40,7 @@ function makeReport(label) {
 }
 
 function tmpDir(tag) {
-  const base = process.env.WP7_TMP ?? path.join(os.tmpdir(), 'camera-man-wp7');
+  const base = process.env.WP7_TMP ?? path.join(os.tmpdir(), 'camhead-man-wp7');
   const d = path.join(base, `${tag}-${process.pid}-${Date.now()}`);
   fs.mkdirSync(d, { recursive: true });
   return d;

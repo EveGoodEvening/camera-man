@@ -30,7 +30,7 @@ npm run preview
 
 ## 在线试玩
 
-<https://evegoodevening.github.io/camera-man/>
+<https://evegoodevening.github.io/camhead-man/>
 
 存档保存在当前站点的浏览器 localStorage；换设备、浏览器或站点地址不会自动迁移。
 

@@ -509,14 +509,14 @@ async function nodeExtras(mods, mk) {
     g.areas.current.def.id = 'r1';
     g.areas.current.def.spawns = { 'spawn.r1_start': {} };
     g.areas.current.spawnUsed = 'spawn.r1_start';
-    localStorage.removeItem('camera-man.save.auto');
+    localStorage.removeItem('camhead-man.save.auto');
     const p = g.effects.run([E.flag(F.R1_LOG_TAKEN), E.dialogue('dlg.dev.wp4_line')], 'test');
     await g.settle();
-    t(localStorage.getItem('camera-man.save.auto') === null, '对话中（临时模式）不落盘');
+    t(localStorage.getItem('camhead-man.save.auto') === null, '对话中（临时模式）不落盘');
     g.dispatch({ t: 'advance' }); g.dispatch({ t: 'advance' });
     await p;
     g.step(1 / 30);
-    t(localStorage.getItem('camera-man.save.auto') !== null, '回到 explore 后落盘');
+    t(localStorage.getItem('camhead-man.save.auto') !== null, '回到 explore 后落盘');
     g.areas.current.def.id = 'dev';
   });
   T('E.photo / GameApi.give 走 photo.award；E.used 标已用', async (g, t) => {
@@ -549,7 +549,7 @@ async function nodeExtras(mods, mk) {
       mods.settings.applySetting(g, 'volume', 'loud');
     } finally { console.error = orig; }
     t(g.settings.reduceFlash === true && ev.length === 1 && ev[0].key === 'reduceFlash', '只在变化时发一次事件');
-    t(JSON.parse(localStorage.getItem('camera-man.settings')).reduceFlash === true, '落盘');
+    t(JSON.parse(localStorage.getItem('camhead-man.settings')).reduceFlash === true, '落盘');
     t(g.settings.volume === mods.settings.DEFAULT_SETTINGS.volume, '非法值不生效');
     t(mods.settings.SETTING_IDS.mouseSens === 'settings.mouse_sens', '映射表');
   });

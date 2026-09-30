@@ -1,5 +1,5 @@
 // owner: WP4
-// 设置（ARCH §6.4）：localStorage `camera-man.settings`，与 GDD §13.12 的 settings.* 一一对应。
+// 设置（ARCH §6.4）：localStorage `camhead-man.settings`，与 GDD §13.12 的 settings.* 一一对应。
 //
 // 存储格式：JSON 对象，键为 Settings 字段名（mouseSens…）；读取时也认 GDD 的 settings.* id 作键（SETTING_IDS 反查）。
 // 读不出或字段非法时逐项用默认值补齐（不整体作废）。
