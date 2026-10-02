@@ -10,6 +10,10 @@
 - 首次通关大约 40–55 分钟（估算，尚未用真人计时）。
 - 零外部资源：模型全部程序化生成，贴图用 Canvas 画，声音用 WebAudio 实时合成。
 
+**[在线试玩](https://evegoodevening.github.io/camhead-man/)**
+
+存档保存在当前站点的浏览器 localStorage；换设备、浏览器或站点地址不会自动迁移。
+
 ## 游戏画面
 
 四个区域，以及取景器、倒带与红外玩法。以下为 1280 × 720 高画质实机截图，不含结局画面；点击图片可查看原图。
@@ -82,12 +86,6 @@ npm run preview
 ```
 
 第一次点击画面时会锁定鼠标并开启声音。进度会自动存到浏览器的 localStorage。
-
-## 在线试玩
-
-<https://evegoodevening.github.io/camhead-man/>
-
-存档保存在当前站点的浏览器 localStorage；换设备、浏览器或站点地址不会自动迁移。
 
 ## 操作
 
